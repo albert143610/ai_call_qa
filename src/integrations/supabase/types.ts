@@ -9,6 +9,42 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      calls: {
+        Row: {
+          created_at: string | null
+          duration_seconds: number | null
+          file_name: string | null
+          file_url: string | null
+          id: string
+          status: Database["public"]["Enums"]["call_status"] | null
+          title: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          duration_seconds?: number | null
+          file_name?: string | null
+          file_url?: string | null
+          id?: string
+          status?: Database["public"]["Enums"]["call_status"] | null
+          title: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          duration_seconds?: number | null
+          file_name?: string | null
+          file_url?: string | null
+          id?: string
+          status?: Database["public"]["Enums"]["call_status"] | null
+          title?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       documents: {
         Row: {
           content: string | null
@@ -47,6 +83,94 @@ export type Database = {
           session_id?: string
         }
         Relationships: []
+      }
+      quality_scores: {
+        Row: {
+          ai_feedback: string | null
+          ai_score: number | null
+          call_id: string
+          created_at: string | null
+          human_feedback: string | null
+          human_score: number | null
+          id: string
+          quality_checklist: Json | null
+          requires_review: boolean | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          sentiment: Database["public"]["Enums"]["sentiment_type"] | null
+          updated_at: string | null
+        }
+        Insert: {
+          ai_feedback?: string | null
+          ai_score?: number | null
+          call_id: string
+          created_at?: string | null
+          human_feedback?: string | null
+          human_score?: number | null
+          id?: string
+          quality_checklist?: Json | null
+          requires_review?: boolean | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          sentiment?: Database["public"]["Enums"]["sentiment_type"] | null
+          updated_at?: string | null
+        }
+        Update: {
+          ai_feedback?: string | null
+          ai_score?: number | null
+          call_id?: string
+          created_at?: string | null
+          human_feedback?: string | null
+          human_score?: number | null
+          id?: string
+          quality_checklist?: Json | null
+          requires_review?: boolean | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          sentiment?: Database["public"]["Enums"]["sentiment_type"] | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quality_scores_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transcriptions: {
+        Row: {
+          call_id: string
+          confidence_score: number | null
+          content: string
+          created_at: string | null
+          id: string
+        }
+        Insert: {
+          call_id: string
+          confidence_score?: number | null
+          content: string
+          created_at?: string | null
+          id?: string
+        }
+        Update: {
+          call_id?: string
+          confidence_score?: number | null
+          content?: string
+          created_at?: string | null
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transcriptions_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -156,7 +280,14 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      call_status:
+        | "uploaded"
+        | "transcribing"
+        | "transcribed"
+        | "analyzing"
+        | "analyzed"
+        | "reviewed"
+      sentiment_type: "positive" | "negative" | "neutral"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -271,6 +402,16 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      call_status: [
+        "uploaded",
+        "transcribing",
+        "transcribed",
+        "analyzing",
+        "analyzed",
+        "reviewed",
+      ],
+      sentiment_type: ["positive", "negative", "neutral"],
+    },
   },
 } as const
