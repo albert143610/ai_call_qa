@@ -7,6 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Play, FileText, BarChart3, Trash2, Phone, User, Building2 } from 'lucide-react';
+import { AudioPlayer } from './AudioPlayer';
 import type { Tables } from '@/integrations/supabase/types';
 
 type Call = Tables<'calls'>;
@@ -188,6 +189,16 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
               </div>
             </CardHeader>
             <CardContent>
+              {/* Audio Player */}
+              {call.file_url && (
+                <div className="mb-6">
+                  <AudioPlayer 
+                    src={call.file_url} 
+                    title={`${call.title} - Audio Recording`}
+                  />
+                </div>
+              )}
+
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Transcription */}
                 <div className="space-y-2">
@@ -323,14 +334,6 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                           ))}
                         </div>
                       </div>
-                    )}
-                    
-                    {call.file_url && (
-                      <Button variant="link" asChild className="p-0 h-auto text-sm">
-                        <a href={call.file_url} target="_blank" rel="noopener noreferrer">
-                          Play Recording
-                        </a>
-                      </Button>
                     )}
                   </div>
                 </div>
