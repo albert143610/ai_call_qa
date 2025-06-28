@@ -9,9 +9,46 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      call_tags: {
+        Row: {
+          call_id: string
+          confidence_score: number | null
+          created_at: string | null
+          id: string
+          tag: string
+        }
+        Insert: {
+          call_id: string
+          confidence_score?: number | null
+          created_at?: string | null
+          id?: string
+          tag: string
+        }
+        Update: {
+          call_id?: string
+          confidence_score?: number | null
+          created_at?: string | null
+          id?: string
+          tag?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "call_tags_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       calls: {
         Row: {
+          agent_name: string | null
+          call_source: string | null
+          call_type: string | null
           created_at: string | null
+          customer_phone: string | null
+          department: string | null
           duration_seconds: number | null
           file_name: string | null
           file_url: string | null
@@ -22,7 +59,12 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          agent_name?: string | null
+          call_source?: string | null
+          call_type?: string | null
           created_at?: string | null
+          customer_phone?: string | null
+          department?: string | null
           duration_seconds?: number | null
           file_name?: string | null
           file_url?: string | null
@@ -33,7 +75,12 @@ export type Database = {
           user_id: string
         }
         Update: {
+          agent_name?: string | null
+          call_source?: string | null
+          call_type?: string | null
           created_at?: string | null
+          customer_phone?: string | null
+          department?: string | null
           duration_seconds?: number | null
           file_name?: string | null
           file_url?: string | null
@@ -89,10 +136,18 @@ export type Database = {
           ai_feedback: string | null
           ai_score: number | null
           call_id: string
+          communication_score: number | null
           created_at: string | null
+          empathy_score: number | null
+          flags: Json | null
+          follow_up_score: number | null
           human_feedback: string | null
           human_score: number | null
           id: string
+          improvement_areas: string[] | null
+          overall_satisfaction_score: number | null
+          problem_resolution_score: number | null
+          professionalism_score: number | null
           quality_checklist: Json | null
           requires_review: boolean | null
           reviewed_at: string | null
@@ -104,10 +159,18 @@ export type Database = {
           ai_feedback?: string | null
           ai_score?: number | null
           call_id: string
+          communication_score?: number | null
           created_at?: string | null
+          empathy_score?: number | null
+          flags?: Json | null
+          follow_up_score?: number | null
           human_feedback?: string | null
           human_score?: number | null
           id?: string
+          improvement_areas?: string[] | null
+          overall_satisfaction_score?: number | null
+          problem_resolution_score?: number | null
+          professionalism_score?: number | null
           quality_checklist?: Json | null
           requires_review?: boolean | null
           reviewed_at?: string | null
@@ -119,10 +182,18 @@ export type Database = {
           ai_feedback?: string | null
           ai_score?: number | null
           call_id?: string
+          communication_score?: number | null
           created_at?: string | null
+          empathy_score?: number | null
+          flags?: Json | null
+          follow_up_score?: number | null
           human_feedback?: string | null
           human_score?: number | null
           id?: string
+          improvement_areas?: string[] | null
+          overall_satisfaction_score?: number | null
+          problem_resolution_score?: number | null
+          professionalism_score?: number | null
           quality_checklist?: Json | null
           requires_review?: boolean | null
           reviewed_at?: string | null
@@ -180,6 +251,20 @@ export type Database = {
       binary_quantize: {
         Args: { "": string } | { "": unknown }
         Returns: unknown
+      }
+      calculate_overall_score: {
+        Args: {
+          communication: number
+          problem_resolution: number
+          professionalism: number
+          empathy: number
+          follow_up: number
+        }
+        Returns: number
+      }
+      extract_audio_duration: {
+        Args: { file_path: string }
+        Returns: number
       }
       halfvec_avg: {
         Args: { "": number[] }

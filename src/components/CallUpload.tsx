@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -16,6 +17,11 @@ export const CallUpload = ({ onUploadComplete }: CallUploadProps) => {
   const [title, setTitle] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [callSource, setCallSource] = useState('');
+  const [agentName, setAgentName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [callType, setCallType] = useState('inbound');
+  const [department, setDepartment] = useState('');
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -77,7 +83,7 @@ export const CallUpload = ({ onUploadComplete }: CallUploadProps) => {
 
       console.log('File uploaded successfully, creating call record...');
 
-      // Create call record - this will trigger the processing automatically
+      // Create call record with enhanced metadata
       const { data: callData, error: insertError } = await supabase
         .from('calls')
         .insert({
@@ -85,7 +91,12 @@ export const CallUpload = ({ onUploadComplete }: CallUploadProps) => {
           title: title.trim(),
           file_url: publicUrl,
           file_name: file.name,
-          status: 'uploaded'
+          status: 'uploaded',
+          call_source: callSource || null,
+          agent_name: agentName || null,
+          customer_phone: customerPhone || null,
+          call_type: callType,
+          department: department || null
         })
         .select()
         .single();
@@ -105,6 +116,11 @@ export const CallUpload = ({ onUploadComplete }: CallUploadProps) => {
       // Reset form
       setTitle('');
       setFile(null);
+      setCallSource('');
+      setAgentName('');
+      setCustomerPhone('');
+      setCallType('inbound');
+      setDepartment('');
       const fileInput = document.getElementById('file-input') as HTMLInputElement;
       if (fileInput) fileInput.value = '';
 
@@ -142,6 +158,52 @@ export const CallUpload = ({ onUploadComplete }: CallUploadProps) => {
               required
             />
           </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Input
+                placeholder="Agent name (optional)"
+                value={agentName}
+                onChange={(e) => setAgentName(e.target.value)}
+              />
+            </div>
+            <div>
+              <Input
+                placeholder="Customer phone (optional)"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+              />
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Select value={callType} onValueChange={setCallType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Call type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="inbound">Inbound</SelectItem>
+                  <SelectItem value="outbound">Outbound</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Input
+                placeholder="Call source (optional)"
+                value={callSource}
+                onChange={(e) => setCallSource(e.target.value)}
+              />
+            </div>
+            <div>
+              <Input
+                placeholder="Department (optional)"
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+              />
+            </div>
+          </div>
+          
           <div>
             <Input
               id="file-input"
@@ -151,6 +213,7 @@ export const CallUpload = ({ onUploadComplete }: CallUploadProps) => {
               required
             />
           </div>
+          
           {file && (
             <div className="text-sm text-gray-600 space-y-1">
               <p>Selected: {file.name}</p>
@@ -158,6 +221,7 @@ export const CallUpload = ({ onUploadComplete }: CallUploadProps) => {
               <p>Type: {file.type}</p>
             </div>
           )}
+          
           <Button type="submit" disabled={uploading || !file || !title.trim()} className="w-full">
             {uploading ? 'Uploading...' : 'Upload Call'}
           </Button>

@@ -6,16 +6,18 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Play, FileText, BarChart3, Trash2 } from 'lucide-react';
+import { Play, FileText, BarChart3, Trash2, Phone, User, Building2 } from 'lucide-react';
 import type { Tables } from '@/integrations/supabase/types';
 
 type Call = Tables<'calls'>;
 type QualityScore = Tables<'quality_scores'>;
 type Transcription = Tables<'transcriptions'>;
+type CallTag = Tables<'call_tags'>;
 
 interface CallWithDetails extends Call {
   quality_scores?: QualityScore[];
   transcriptions?: Transcription[];
+  call_tags?: CallTag[];
 }
 
 interface CallsListProps {
@@ -37,7 +39,8 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
         .select(`
           *,
           quality_scores(*),
-          transcriptions(*)
+          transcriptions(*),
+          call_tags(*)
         `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
@@ -104,6 +107,14 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
     return colors[sentiment as keyof typeof colors] || 'bg-gray-100 text-gray-800';
   };
 
+  const getCallTypeColor = (callType: string) => {
+    const colors = {
+      inbound: 'bg-blue-100 text-blue-800',
+      outbound: 'bg-green-100 text-green-800',
+    };
+    return colors[callType as keyof typeof colors] || 'bg-gray-100 text-gray-800';
+  };
+
   if (loading) {
     return <div>Loading calls...</div>;
   }
@@ -125,12 +136,13 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
       {calls.map((call) => {
         const qualityScore = call.quality_scores?.[0];
         const transcription = call.transcriptions?.[0];
+        const tags = call.call_tags || [];
 
         return (
           <Card key={call.id}>
             <CardHeader>
               <div className="flex items-start justify-between">
-                <div>
+                <div className="flex-1">
                   <CardTitle className="flex items-center gap-2">
                     <Play className="h-4 w-4" />
                     {call.title}
@@ -139,24 +151,44 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                     Uploaded on {new Date(call.created_at!).toLocaleDateString()}
                     {call.duration_seconds && ` • ${Math.floor(call.duration_seconds / 60)}:${(call.duration_seconds % 60).toString().padStart(2, '0')}`}
                   </CardDescription>
+                  
+                  {/* Call Metadata */}
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <Badge className={getStatusColor(call.status!)}>
+                      {call.status}
+                    </Badge>
+                    {call.call_type && (
+                      <Badge className={getCallTypeColor(call.call_type)}>
+                        <Phone className="h-3 w-3 mr-1" />
+                        {call.call_type}
+                      </Badge>
+                    )}
+                    {call.agent_name && (
+                      <Badge variant="outline">
+                        <User className="h-3 w-3 mr-1" />
+                        {call.agent_name}
+                      </Badge>
+                    )}
+                    {call.department && (
+                      <Badge variant="outline">
+                        <Building2 className="h-3 w-3 mr-1" />
+                        {call.department}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge className={getStatusColor(call.status!)}>
-                    {call.status}
-                  </Badge>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(call.id)}
-                    className="text-red-600 hover:text-red-800"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDelete(call.id)}
+                  className="text-red-600 hover:text-red-800"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Transcription */}
                 <div className="space-y-2">
                   <h4 className="font-semibold flex items-center gap-1">
@@ -181,19 +213,50 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                 </div>
 
                 {/* Quality Analysis */}
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <h4 className="font-semibold flex items-center gap-1">
                     <BarChart3 className="h-4 w-4" />
                     Quality Analysis
                   </h4>
                   {qualityScore ? (
-                    <div className="space-y-2">
-                      {qualityScore.ai_score && (
+                    <div className="space-y-3">
+                      {qualityScore.overall_satisfaction_score && (
                         <div className="flex items-center justify-between">
-                          <span className="text-sm">AI Score:</span>
-                          <Badge variant="outline">{qualityScore.ai_score}/5</Badge>
+                          <span className="text-sm font-medium">Overall Score:</span>
+                          <Badge variant="outline" className="text-lg font-bold">
+                            {qualityScore.overall_satisfaction_score}/5
+                          </Badge>
                         </div>
                       )}
+                      
+                      {/* Detailed Scores */}
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        {qualityScore.communication_score && (
+                          <div className="flex justify-between">
+                            <span>Communication:</span>
+                            <span>{qualityScore.communication_score}/5</span>
+                          </div>
+                        )}
+                        {qualityScore.problem_resolution_score && (
+                          <div className="flex justify-between">
+                            <span>Problem Resolution:</span>
+                            <span>{qualityScore.problem_resolution_score}/5</span>
+                          </div>
+                        )}
+                        {qualityScore.professionalism_score && (
+                          <div className="flex justify-between">
+                            <span>Professionalism:</span>
+                            <span>{qualityScore.professionalism_score}/5</span>
+                          </div>
+                        )}
+                        {qualityScore.empathy_score && (
+                          <div className="flex justify-between">
+                            <span>Empathy:</span>
+                            <span>{qualityScore.empathy_score}/5</span>
+                          </div>
+                        )}
+                      </div>
+                      
                       {qualityScore.sentiment && (
                         <div className="flex items-center justify-between">
                           <span className="text-sm">Sentiment:</span>
@@ -202,10 +265,24 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                           </Badge>
                         </div>
                       )}
+                      
                       {qualityScore.ai_feedback && (
                         <div className="bg-blue-50 p-2 rounded text-sm">
                           <p className="font-medium">AI Feedback:</p>
                           <p>{qualityScore.ai_feedback.slice(0, 150)}...</p>
+                        </div>
+                      )}
+                      
+                      {qualityScore.improvement_areas && qualityScore.improvement_areas.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">Improvement Areas:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {qualityScore.improvement_areas.map((area, index) => (
+                              <Badge key={index} variant="secondary" className="text-xs">
+                                {area}
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -216,11 +293,38 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                   )}
                 </div>
 
-                {/* File Info */}
-                <div className="space-y-2">
-                  <h4 className="font-semibold">File Details</h4>
-                  <div className="text-sm space-y-1">
-                    <p><span className="font-medium">File:</span> {call.file_name}</p>
+                {/* File Info & Tags */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold">Details & Tags</h4>
+                  <div className="text-sm space-y-2">
+                    <div>
+                      <p><span className="font-medium">File:</span> {call.file_name}</p>
+                      {call.call_source && (
+                        <p><span className="font-medium">Source:</span> {call.call_source}</p>
+                      )}
+                      {call.customer_phone && (
+                        <p><span className="font-medium">Customer:</span> {call.customer_phone}</p>
+                      )}
+                    </div>
+                    
+                    {tags.length > 0 && (
+                      <div>
+                        <p className="font-medium mb-1">Tags:</p>
+                        <div className="flex flex-wrap gap-1">
+                          {tags.map((tag) => (
+                            <Badge key={tag.id} variant="outline" className="text-xs">
+                              {tag.tag}
+                              {tag.confidence_score && (
+                                <span className="ml-1 text-gray-500">
+                                  ({(tag.confidence_score * 100).toFixed(0)}%)
+                                </span>
+                              )}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
                     {call.file_url && (
                       <Button variant="link" asChild className="p-0 h-auto text-sm">
                         <a href={call.file_url} target="_blank" rel="noopener noreferrer">
