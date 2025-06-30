@@ -54,7 +54,7 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
       if (errorCode === 1) userFriendlyError = 'Audio loading aborted';
       else if (errorCode === 2) userFriendlyError = 'Network error loading audio';
       else if (errorCode === 3) userFriendlyError = 'Audio decoding error';
-      else if (errorCode === 4) userFriendlyError = 'Audio format not supported';
+      else if (errorCode === 4) userFriendlyError = 'Audio format not supported or access denied';
       
       setError(userFriendlyError);
       setIsLoading(false);
@@ -72,8 +72,8 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
     audio.addEventListener('canplaythrough', handleCanPlayThrough);
     audio.addEventListener('error', handleError);
 
-    // Set crossOrigin to handle CORS issues with Supabase
-    audio.crossOrigin = 'anonymous';
+    // Remove crossOrigin since bucket is now public
+    audio.preload = 'metadata';
     
     // Force load the audio
     audio.load();
@@ -162,6 +162,20 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
         </div>
         <p className="text-sm text-red-600 mt-1">{error}</p>
         <p className="text-xs text-red-500 mt-1">Audio URL: {src}</p>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="mt-2"
+          onClick={() => {
+            setError(null);
+            setIsLoading(true);
+            if (audioRef.current) {
+              audioRef.current.load();
+            }
+          }}
+        >
+          Retry
+        </Button>
       </div>
     );
   }
@@ -172,7 +186,6 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
         ref={audioRef} 
         src={src} 
         preload="metadata"
-        crossOrigin="anonymous"
       />
       
       {title && <h4 className="font-medium text-sm text-gray-900">{title}</h4>}
