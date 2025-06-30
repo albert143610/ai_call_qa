@@ -1,12 +1,12 @@
-
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Play, FileText, BarChart3, Trash2, Phone, User, Building2 } from 'lucide-react';
+import { Play, FileText, BarChart3, Trash2, Phone, User, Building2, Loader } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 import type { Tables } from '@/integrations/supabase/types';
 
@@ -24,6 +24,49 @@ interface CallWithDetails extends Call {
 interface CallsListProps {
   refreshTrigger: number;
 }
+
+const LoadingSpinner = () => (
+  <div className="flex items-center gap-2 text-blue-600">
+    <Loader className="h-4 w-4 animate-spin" />
+    <span className="text-sm">Processing...</span>
+  </div>
+);
+
+const TranscriptionLoadingState = () => (
+  <div className="space-y-2">
+    <div className="flex items-center gap-2">
+      <Loader className="h-4 w-4 animate-spin text-blue-600" />
+      <span className="text-sm text-blue-600">Transcribing audio...</span>
+    </div>
+    <div className="space-y-2">
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-4 w-3/4" />
+      <Skeleton className="h-4 w-1/2" />
+    </div>
+  </div>
+);
+
+const QualityAnalysisLoadingState = () => (
+  <div className="space-y-3">
+    <div className="flex items-center gap-2">
+      <Loader className="h-4 w-4 animate-spin text-yellow-600" />
+      <span className="text-sm text-yellow-600">Analyzing quality...</span>
+    </div>
+    <div className="space-y-2">
+      <div className="flex justify-between items-center">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-6 w-12" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-full" />
+        <Skeleton className="h-3 w-full" />
+      </div>
+      <Skeleton className="h-16 w-full" />
+    </div>
+  </div>
+);
 
 export const CallsList = ({ refreshTrigger }: CallsListProps) => {
   const [calls, setCalls] = useState<CallWithDetails[]>([]);
@@ -139,6 +182,9 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
         const transcription = call.transcriptions?.[0];
         const tags = call.call_tags || [];
 
+        const isTranscribing = call.status === 'uploaded' || call.status === 'transcribing';
+        const isAnalyzing = call.status === 'transcribed' || call.status === 'analyzing';
+
         return (
           <Card key={call.id}>
             <CardHeader>
@@ -216,10 +262,10 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                         </p>
                       )}
                     </div>
+                  ) : isTranscribing ? (
+                    <TranscriptionLoadingState />
                   ) : (
-                    <p className="text-gray-500 text-sm">
-                      {call.status === 'uploaded' ? 'Pending transcription' : 'Transcribing...'}
-                    </p>
+                    <p className="text-gray-500 text-sm">No transcription available</p>
                   )}
                 </div>
 
@@ -297,9 +343,11 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                         </div>
                       )}
                     </div>
+                  ) : isAnalyzing ? (
+                    <QualityAnalysisLoadingState />
                   ) : (
                     <p className="text-gray-500 text-sm">
-                      {call.status === 'transcribed' ? 'Analyzing...' : 'Pending analysis'}
+                      {call.status === 'uploaded' ? 'Waiting for transcription to complete' : 'No quality analysis available'}
                     </p>
                   )}
                 </div>
