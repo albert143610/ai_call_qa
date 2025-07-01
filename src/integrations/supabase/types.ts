@@ -145,6 +145,9 @@ export type Database = {
           human_score: number | null
           id: string
           improvement_areas: string[] | null
+          manual_review_notes: string | null
+          manual_review_required: boolean | null
+          manual_review_status: string | null
           overall_satisfaction_score: number | null
           problem_resolution_score: number | null
           professionalism_score: number | null
@@ -168,6 +171,9 @@ export type Database = {
           human_score?: number | null
           id?: string
           improvement_areas?: string[] | null
+          manual_review_notes?: string | null
+          manual_review_required?: boolean | null
+          manual_review_status?: string | null
           overall_satisfaction_score?: number | null
           problem_resolution_score?: number | null
           professionalism_score?: number | null
@@ -191,6 +197,9 @@ export type Database = {
           human_score?: number | null
           id?: string
           improvement_areas?: string[] | null
+          manual_review_notes?: string | null
+          manual_review_required?: boolean | null
+          manual_review_status?: string | null
           overall_satisfaction_score?: number | null
           problem_resolution_score?: number | null
           professionalism_score?: number | null
@@ -204,6 +213,44 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "quality_scores_call_id_fkey"
+            columns: ["call_id"]
+            isOneToOne: false
+            referencedRelation: "calls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      review_assignments: {
+        Row: {
+          assigned_at: string | null
+          assigned_by: string | null
+          call_id: string
+          completed_at: string | null
+          id: string
+          reviewer_id: string
+          status: string | null
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_by?: string | null
+          call_id: string
+          completed_at?: string | null
+          id?: string
+          reviewer_id: string
+          status?: string | null
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_by?: string | null
+          call_id?: string
+          completed_at?: string | null
+          id?: string
+          reviewer_id?: string
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_assignments_call_id_fkey"
             columns: ["call_id"]
             isOneToOne: false
             referencedRelation: "calls"
@@ -243,6 +290,27 @@ export type Database = {
           },
         ]
       }
+      user_roles: {
+        Row: {
+          created_at: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -266,6 +334,10 @@ export type Database = {
         Args: { file_path: string }
         Returns: number
       }
+      get_current_user_role: {
+        Args: Record<PropertyKey, never>
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
       halfvec_avg: {
         Args: { "": number[] }
         Returns: unknown
@@ -281,6 +353,13 @@ export type Database = {
       halfvec_typmod_in: {
         Args: { "": unknown[] }
         Returns: number
+      }
+      has_role: {
+        Args: {
+          _user_id: string
+          _role: Database["public"]["Enums"]["app_role"]
+        }
+        Returns: boolean
       }
       hnsw_bit_support: {
         Args: { "": unknown }
@@ -365,6 +444,7 @@ export type Database = {
       }
     }
     Enums: {
+      app_role: "admin" | "reviewer" | "user"
       call_status:
         | "uploaded"
         | "transcribing"
@@ -488,6 +568,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role: ["admin", "reviewer", "user"],
       call_status: [
         "uploaded",
         "transcribing",

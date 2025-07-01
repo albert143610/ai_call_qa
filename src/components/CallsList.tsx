@@ -184,15 +184,32 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
 
         const isTranscribing = call.status === 'uploaded' || call.status === 'transcribing';
         const isAnalyzing = call.status === 'transcribed' || call.status === 'analyzing';
+        const requiresReview = qualityScore?.manual_review_required;
+        const reviewStatus = qualityScore?.manual_review_status;
 
         return (
-          <Card key={call.id}>
+          <Card key={call.id} className={requiresReview && reviewStatus === 'pending' ? 'border-yellow-200 bg-yellow-50' : ''}>
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <CardTitle className="flex items-center gap-2">
                     <Play className="h-4 w-4" />
                     {call.title}
+                    {requiresReview && reviewStatus === 'pending' && (
+                      <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300">
+                        Review Needed
+                      </Badge>
+                    )}
+                    {reviewStatus === 'approved' && (
+                      <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                        Approved
+                      </Badge>
+                    )}
+                    {reviewStatus === 'rejected' && (
+                      <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300">
+                        Rejected
+                      </Badge>
+                    )}
                   </CardTitle>
                   <CardDescription>
                     Uploaded on {new Date(call.created_at!).toLocaleDateString()}
@@ -327,6 +344,17 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                         <div className="bg-blue-50 p-2 rounded text-sm">
                           <p className="font-medium">AI Feedback:</p>
                           <p>{qualityScore.ai_feedback.slice(0, 150)}...</p>
+                        </div>
+                      )}
+
+                      {/* Manual Review Status */}
+                      {requiresReview && (
+                        <div className="bg-yellow-50 p-2 rounded text-sm border border-yellow-200">
+                          <p className="font-medium text-yellow-800">Manual Review Required</p>
+                          <p className="text-yellow-700">Status: {reviewStatus}</p>
+                          {qualityScore.manual_review_notes && (
+                            <p className="text-yellow-700 mt-1">{qualityScore.manual_review_notes}</p>
+                          )}
                         </div>
                       )}
                       
