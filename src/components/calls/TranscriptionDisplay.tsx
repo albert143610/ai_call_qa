@@ -16,22 +16,25 @@ export const TranscriptionDisplay = ({
   isTranscribing 
 }: TranscriptionDisplayProps) => {
   return (
-    <div className="space-y-2">
-      <h4 className="font-semibold flex items-center gap-1">
+    <div className="space-y-4">
+      <h4 className="font-semibold flex items-center gap-2">
         <FileText className="h-4 w-4" />
         Transcription
       </h4>
       {transcription ? (
         <div className="space-y-4">
-          {/* Original full transcription */}
-          <div className="bg-gray-50 p-3 rounded text-sm">
-            <p className="font-medium text-xs text-gray-600 mb-2">Full Transcript:</p>
-            {transcription.content.slice(0, 200)}
-            {transcription.content.length > 200 && '...'}
+          {/* Full transcription with better formatting */}
+          <div className="bg-gray-50 p-4 rounded-lg border">
+            <p className="font-medium text-sm text-gray-700 mb-3">Full Transcript:</p>
+            <div className="text-sm leading-relaxed text-gray-800 max-h-40 overflow-y-auto">
+              {transcription.content}
+            </div>
             {transcription.confidence_score && (
-              <p className="text-xs text-gray-500 mt-2">
-                Confidence: {(transcription.confidence_score * 100).toFixed(1)}%
-              </p>
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <p className="text-xs text-gray-600">
+                  Confidence: <span className="font-medium">{(transcription.confidence_score * 100).toFixed(1)}%</span>
+                </p>
+              </div>
             )}
           </div>
           
