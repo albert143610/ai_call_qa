@@ -258,6 +258,47 @@ export type Database = {
           },
         ]
       }
+      transcription_segments: {
+        Row: {
+          confidence_score: number | null
+          created_at: string | null
+          end_time: number
+          id: string
+          start_time: number
+          text: string
+          transcription_id: string
+          word_count: number | null
+        }
+        Insert: {
+          confidence_score?: number | null
+          created_at?: string | null
+          end_time: number
+          id?: string
+          start_time: number
+          text: string
+          transcription_id: string
+          word_count?: number | null
+        }
+        Update: {
+          confidence_score?: number | null
+          created_at?: string | null
+          end_time?: number
+          id?: string
+          start_time?: number
+          text?: string
+          transcription_id?: string
+          word_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fk_transcription_segments_transcription_id"
+            columns: ["transcription_id"]
+            isOneToOne: false
+            referencedRelation: "transcriptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       transcriptions: {
         Row: {
           call_id: string

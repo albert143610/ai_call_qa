@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Play, FileText, BarChart3, Trash2, Phone, User, Building2, Loader } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
+import { TranscriptSegments } from './TranscriptSegments';
 import type { Tables } from '@/integrations/supabase/types';
 
 type Call = Tables<'calls'>;
@@ -270,14 +271,21 @@ export const CallsList = ({ refreshTrigger }: CallsListProps) => {
                     Transcription
                   </h4>
                   {transcription ? (
-                    <div className="bg-gray-50 p-3 rounded text-sm">
-                      {transcription.content.slice(0, 200)}
-                      {transcription.content.length > 200 && '...'}
-                      {transcription.confidence_score && (
-                        <p className="text-xs text-gray-500 mt-2">
-                          Confidence: {(transcription.confidence_score * 100).toFixed(1)}%
-                        </p>
-                      )}
+                    <div className="space-y-4">
+                      {/* Original full transcription */}
+                      <div className="bg-gray-50 p-3 rounded text-sm">
+                        <p className="font-medium text-xs text-gray-600 mb-2">Full Transcript:</p>
+                        {transcription.content.slice(0, 200)}
+                        {transcription.content.length > 200 && '...'}
+                        {transcription.confidence_score && (
+                          <p className="text-xs text-gray-500 mt-2">
+                            Confidence: {(transcription.confidence_score * 100).toFixed(1)}%
+                          </p>
+                        )}
+                      </div>
+                      
+                      {/* Timestamped segments */}
+                      <TranscriptSegments transcriptionId={transcription.id} />
                     </div>
                   ) : isTranscribing ? (
                     <TranscriptionLoadingState />
