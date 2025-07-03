@@ -7,11 +7,22 @@ import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, AlertCircle } fro
 interface AudioPlayerProps {
   src: string;
   title?: string;
+  onTimeUpdate?: (currentTime: number) => void;
+  onSeekTo?: (time: number) => void;
+  isPlaying?: boolean;
+  onPlayStateChange?: (isPlaying: boolean) => void;
 }
 
-export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
+export const AudioPlayer = ({ 
+  src, 
+  title, 
+  onTimeUpdate,
+  onSeekTo,
+  isPlaying: externalIsPlaying,
+  onPlayStateChange
+}: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [internalIsPlaying, setInternalIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -19,30 +30,45 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Use external playing state if provided, otherwise use internal state
+  const isPlaying = externalIsPlaying !== undefined ? externalIsPlaying : internalIsPlaying;
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     console.log('Loading audio from:', src);
 
-    const updateTime = () => setCurrentTime(audio.currentTime);
+    const updateTime = () => {
+      const newTime = audio.currentTime;
+      setCurrentTime(newTime);
+      onTimeUpdate?.(newTime);
+    };
+    
     const updateDuration = () => {
       console.log('Audio duration loaded:', audio.duration);
       setDuration(audio.duration);
       setIsLoading(false);
       setError(null);
     };
-    const handleEnded = () => setIsPlaying(false);
+    
+    const handleEnded = () => {
+      setInternalIsPlaying(false);
+      onPlayStateChange?.(false);
+    };
+    
     const handleLoadStart = () => {
       console.log('Audio load started');
       setIsLoading(true);
       setError(null);
     };
+    
     const handleCanPlayThrough = () => {
       console.log('Audio can play through');
       setIsLoading(false);
       setError(null);
     };
+    
     const handleError = (e: Event) => {
       console.error('Audio error:', e);
       const audioElement = e.target as HTMLAudioElement;
@@ -59,6 +85,7 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
       setError(userFriendlyError);
       setIsLoading(false);
     };
+    
     const handleLoadedData = () => {
       console.log('Audio data loaded');
       setIsLoading(false);
@@ -72,10 +99,7 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
     audio.addEventListener('canplaythrough', handleCanPlayThrough);
     audio.addEventListener('error', handleError);
 
-    // Remove crossOrigin since bucket is now public
     audio.preload = 'metadata';
-    
-    // Force load the audio
     audio.load();
 
     return () => {
@@ -87,7 +111,30 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
       audio.removeEventListener('canplaythrough', handleCanPlayThrough);
       audio.removeEventListener('error', handleError);
     };
-  }, [src]);
+  }, [src, onTimeUpdate, onPlayStateChange]);
+
+  // Handle external seek requests
+  useEffect(() => {
+    if (onSeekTo) {
+      // This effect is for when the component receives seek requests from outside
+    }
+  }, [onSeekTo]);
+
+  // Expose seek function to parent
+  useEffect(() => {
+    if (onSeekTo) {
+      const seekHandler = (time: number) => {
+        const audio = audioRef.current;
+        if (!audio || error) return;
+        
+        audio.currentTime = Math.max(0, Math.min(duration, time));
+        setCurrentTime(time);
+      };
+
+      // Store the seek handler so parent can call it
+      (onSeekTo as any).current = seekHandler;
+    }
+  }, [onSeekTo, duration, error]);
 
   const togglePlay = async () => {
     const audio = audioRef.current;
@@ -96,11 +143,13 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
     try {
       if (isPlaying) {
         audio.pause();
-        setIsPlaying(false);
+        setInternalIsPlaying(false);
+        onPlayStateChange?.(false);
       } else {
         console.log('Attempting to play audio');
         await audio.play();
-        setIsPlaying(true);
+        setInternalIsPlaying(true);
+        onPlayStateChange?.(true);
       }
     } catch (error) {
       console.error('Error playing audio:', error);
@@ -112,8 +161,10 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
     const audio = audioRef.current;
     if (!audio || error) return;
     
-    audio.currentTime = value[0];
-    setCurrentTime(value[0]);
+    const newTime = value[0];
+    audio.currentTime = newTime;
+    setCurrentTime(newTime);
+    onTimeUpdate?.(newTime);
   };
 
   const handleVolumeChange = (value: number[]) => {
@@ -143,7 +194,10 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
     const audio = audioRef.current;
     if (!audio || error) return;
     
-    audio.currentTime = Math.max(0, Math.min(duration, audio.currentTime + seconds));
+    const newTime = Math.max(0, Math.min(duration, audio.currentTime + seconds));
+    audio.currentTime = newTime;
+    setCurrentTime(newTime);
+    onTimeUpdate?.(newTime);
   };
 
   const formatTime = (time: number) => {
@@ -152,6 +206,23 @@ export const AudioPlayer = ({ src, title }: AudioPlayerProps) => {
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
+
+  // Method to seek from outside (used by transcript)
+  const seekTo = (time: number) => {
+    const audio = audioRef.current;
+    if (!audio || error) return;
+    
+    audio.currentTime = Math.max(0, Math.min(duration, time));
+    setCurrentTime(time);
+    onTimeUpdate?.(time);
+  };
+
+  // Expose seekTo method to parent component
+  useEffect(() => {
+    if (onSeekTo && typeof onSeekTo === 'object' && 'current' in onSeekTo) {
+      (onSeekTo as any).current = seekTo;
+    }
+  }, [onSeekTo, duration, error]);
 
   if (error) {
     return (

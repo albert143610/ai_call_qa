@@ -12,6 +12,44 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY')!;
 
+// Function to split transcript into timestamped segments
+function createTimestampedSegments(transcription: string, totalDuration: number) {
+  // Split transcript by speaker changes and natural pauses
+  const segments = transcription.split(/(?=Customer:|Agent:)/g).filter(segment => segment.trim());
+  const segmentData = [];
+  let currentTime = 0;
+  
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i].trim();
+    if (!segment) continue;
+    
+    // Estimate segment duration based on word count (average 2 words per second in conversation)
+    const wordCount = segment.split(/\s+/).length;
+    const estimatedDuration = Math.max(wordCount / 2, 3); // Minimum 3 seconds per segment
+    
+    // Adjust duration proportionally to fit total duration
+    const adjustedDuration = (estimatedDuration / segments.reduce((acc, seg) => {
+      const words = seg.trim().split(/\s+/).length;
+      return acc + Math.max(words / 2, 3);
+    }, 0)) * totalDuration;
+    
+    const startTime = currentTime;
+    const endTime = Math.min(currentTime + adjustedDuration, totalDuration);
+    
+    segmentData.push({
+      start_time: startTime,
+      end_time: endTime,
+      text: segment,
+      word_count: wordCount,
+      confidence_score: 0.9 // Mock confidence score
+    });
+    
+    currentTime = endTime;
+  }
+  
+  return segmentData;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -70,36 +108,65 @@ Customer: No, that covers everything. Thank you for your help!
 
 Agent: You're welcome! Have a great day and thank you for choosing our service.`;
 
+    // Estimate call duration based on transcription length
+    const estimatedDuration = Math.floor(mockTranscription.length / 10);
+
     // Insert transcription
     console.log('Inserting transcription...');
-    const { error: transcriptionError } = await supabase
+    const { data: transcriptionData, error: transcriptionError } = await supabase
       .from('transcriptions')
       .insert({
         call_id: callId,
         content: mockTranscription,
         confidence_score: 0.95
-      });
+      })
+      .select()
+      .single();
 
     if (transcriptionError) {
       console.error('Transcription error:', transcriptionError);
       throw transcriptionError;
     }
 
-    // Step 3: Update status to transcribed
+    // Step 3: Create timestamped segments
+    console.log('Creating timestamped segments...');
+    const segments = createTimestampedSegments(mockTranscription, estimatedDuration);
+    
+    const segmentsToInsert = segments.map(segment => ({
+      transcription_id: transcriptionData.id,
+      start_time: segment.start_time,
+      end_time: segment.end_time,
+      text: segment.text,
+      word_count: segment.word_count,
+      confidence_score: segment.confidence_score
+    }));
+
+    const { error: segmentsError } = await supabase
+      .from('transcription_segments')
+      .insert(segmentsToInsert);
+
+    if (segmentsError) {
+      console.error('Segments error:', segmentsError);
+      throw segmentsError;
+    }
+
+    console.log(`Inserted ${segments.length} transcript segments`);
+
+    // Step 4: Update status to transcribed
     console.log('Updating status to transcribed...');
     await supabase
       .from('calls')
       .update({ status: 'transcribed', updated_at: new Date().toISOString() })
       .eq('id', callId);
 
-    // Step 4: Update status to analyzing
+    // Step 5: Update status to analyzing
     console.log('Updating status to analyzing...');
     await supabase
       .from('calls')
       .update({ status: 'analyzing', updated_at: new Date().toISOString() })
       .eq('id', callId);
 
-    // Step 5: Analyze call quality using OpenAI
+    // Step 6: Analyze call quality using OpenAI
     console.log('Starting AI analysis...');
     
     if (!openAIApiKey) {
@@ -167,7 +234,7 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
       analysis.sentiment = 'neutral'; // Default sentiment
     }
 
-    // Step 6: Insert quality score
+    // Step 7: Insert quality score
     console.log('Inserting quality analysis...');
     const { error: qualityError } = await supabase
       .from('quality_scores')
@@ -184,15 +251,14 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
       throw qualityError;
     }
 
-    // Step 7: Update status to analyzed
+    // Step 8: Update status to analyzed and set duration
     console.log('Updating status to analyzed...');
     await supabase
       .from('calls')
       .update({ 
         status: 'analyzed', 
         updated_at: new Date().toISOString(),
-        // Estimate duration based on transcription length (rough approximation)
-        duration_seconds: Math.floor(mockTranscription.length / 10) 
+        duration_seconds: estimatedDuration 
       })
       .eq('id', callId);
 
@@ -203,7 +269,8 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
         success: true, 
         message: 'Call processed successfully',
         callId: callId,
-        analysis: analysis
+        analysis: analysis,
+        segmentsCreated: segments.length
       }), 
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

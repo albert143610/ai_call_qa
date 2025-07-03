@@ -1,4 +1,5 @@
 
+import { useState, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,10 @@ interface CallCardProps {
 }
 
 export const CallCard = ({ call, onDelete }: CallCardProps) => {
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const seekToRef = useRef<((time: number) => void) | null>(null);
+
   const qualityScore = call.quality_scores?.[0];
   const transcription = call.transcriptions?.[0];
   const tags = call.call_tags || [];
@@ -35,6 +40,20 @@ export const CallCard = ({ call, onDelete }: CallCardProps) => {
   const isAnalyzing = call.status === 'transcribed' || call.status === 'analyzing';
   const requiresReview = qualityScore?.manual_review_required;
   const reviewStatus = qualityScore?.manual_review_status;
+
+  const handleTimeUpdate = (time: number) => {
+    setCurrentTime(time);
+  };
+
+  const handlePlayStateChange = (playing: boolean) => {
+    setIsPlaying(playing);
+  };
+
+  const handleSeekTo = (time: number) => {
+    if (seekToRef.current) {
+      seekToRef.current(time);
+    }
+  };
 
   return (
     <Card className={requiresReview && reviewStatus === 'pending' ? 'border-yellow-200 bg-yellow-50' : ''}>
@@ -78,12 +97,16 @@ export const CallCard = ({ call, onDelete }: CallCardProps) => {
         </div>
       </CardHeader>
       <CardContent>
-        {/* Audio Player */}
+        {/* Audio Player with enhanced controls */}
         {call.file_url && (
           <div className="mb-6">
             <AudioPlayer 
               src={call.file_url} 
               title={`${call.title} - Audio Recording`}
+              onTimeUpdate={handleTimeUpdate}
+              onSeekTo={seekToRef}
+              isPlaying={isPlaying}
+              onPlayStateChange={handlePlayStateChange}
             />
           </div>
         )}
@@ -92,6 +115,9 @@ export const CallCard = ({ call, onDelete }: CallCardProps) => {
           <TranscriptionDisplay 
             transcription={transcription}
             isTranscribing={isTranscribing}
+            currentTime={currentTime}
+            isPlaying={isPlaying}
+            onSeekTo={handleSeekTo}
           />
 
           <QualityAnalysisDisplay 
