@@ -8,7 +8,7 @@ interface AudioPlayerProps {
   src: string;
   title?: string;
   onTimeUpdate?: (currentTime: number) => void;
-  onSeekTo?: (time: number) => void;
+  onSeekTo?: React.MutableRefObject<((time: number) => void) | null>;
   isPlaying?: boolean;
   onPlayStateChange?: (isPlaying: boolean) => void;
 }
@@ -113,13 +113,6 @@ export const AudioPlayer = ({
     };
   }, [src, onTimeUpdate, onPlayStateChange]);
 
-  // Handle external seek requests
-  useEffect(() => {
-    if (onSeekTo) {
-      // This effect is for when the component receives seek requests from outside
-    }
-  }, [onSeekTo]);
-
   // Expose seek function to parent
   useEffect(() => {
     if (onSeekTo) {
@@ -129,12 +122,12 @@ export const AudioPlayer = ({
         
         audio.currentTime = Math.max(0, Math.min(duration, time));
         setCurrentTime(time);
+        onTimeUpdate?.(time);
       };
 
-      // Store the seek handler so parent can call it
-      (onSeekTo as any).current = seekHandler;
+      onSeekTo.current = seekHandler;
     }
-  }, [onSeekTo, duration, error]);
+  }, [onSeekTo, duration, error, onTimeUpdate]);
 
   const togglePlay = async () => {
     const audio = audioRef.current;
@@ -206,23 +199,6 @@ export const AudioPlayer = ({
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
-
-  // Method to seek from outside (used by transcript)
-  const seekTo = (time: number) => {
-    const audio = audioRef.current;
-    if (!audio || error) return;
-    
-    audio.currentTime = Math.max(0, Math.min(duration, time));
-    setCurrentTime(time);
-    onTimeUpdate?.(time);
-  };
-
-  // Expose seekTo method to parent component
-  useEffect(() => {
-    if (onSeekTo && typeof onSeekTo === 'object' && 'current' in onSeekTo) {
-      (onSeekTo as any).current = seekTo;
-    }
-  }, [onSeekTo, duration, error]);
 
   if (error) {
     return (
