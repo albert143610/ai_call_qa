@@ -1,14 +1,15 @@
 
-import { useState, useRef } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState, useRef } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Play, Trash2 } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { FileText, ChevronDown, ChevronUp, Trash2, Play, Pause, Clock } from 'lucide-react';
 import { AudioPlayer } from '../AudioPlayer';
-import { CallMetadataBadges } from './CallMetadataBadges';
 import { TranscriptionDisplay } from './TranscriptionDisplay';
 import { QualityAnalysisDisplay } from './QualityAnalysisDisplay';
 import { CallDetailsAndTags } from './CallDetailsAndTags';
+import { CallMetadataBadges } from './CallMetadataBadges';
 import type { Tables } from '@/integrations/supabase/types';
 
 type Call = Tables<'calls'>;
@@ -27,111 +28,124 @@ interface CallCardProps {
   onDelete: (callId: string) => void;
 }
 
+const getStatusColor = (status: string) => {
+  const colors = {
+    uploaded: 'bg-blue-100 text-blue-800',
+    transcribing: 'bg-yellow-100 text-yellow-800',
+    transcribed: 'bg-green-100 text-green-800',
+    analyzing: 'bg-purple-100 text-purple-800',
+    analyzed: 'bg-emerald-100 text-emerald-800',
+    reviewed: 'bg-gray-100 text-gray-800',
+  };
+  return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800';
+};
+
+const formatDuration = (seconds: number | null) => {
+  if (!seconds) return null;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+};
+
 export const CallCard = ({ call, onDelete }: CallCardProps) => {
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const seekToRef = useRef<((time: number) => void) | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   const qualityScore = call.quality_scores?.[0];
   const transcription = call.transcriptions?.[0];
   const tags = call.call_tags || [];
 
-  const isTranscribing = call.status === 'uploaded' || call.status === 'transcribing';
-  const isAnalyzing = call.status === 'transcribed' || call.status === 'analyzing';
-  const requiresReview = qualityScore?.manual_review_required;
-  const reviewStatus = qualityScore?.manual_review_status;
+  const isAnalyzing = call.status === 'analyzing' || call.status === 'transcribing';
 
-  const handleTimeUpdate = (time: number) => {
-    setCurrentTime(time);
-  };
-
-  const handlePlayStateChange = (playing: boolean) => {
-    setIsPlaying(playing);
-  };
-
-  const handleSeekTo = (time: number) => {
-    if (seekToRef.current) {
-      seekToRef.current(time);
-    }
+  const handleRetrySuccess = () => {
+    // Trigger a refresh of the call data
+    setRefreshTrigger(prev => prev + 1);
   };
 
   return (
-    <Card className={requiresReview && reviewStatus === 'pending' ? 'border-yellow-200 bg-yellow-50' : ''}>
+    <Card className="w-full">
       <CardHeader>
         <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <CardTitle className="flex items-center gap-2">
-              <Play className="h-4 w-4" />
+          <div className="space-y-2 flex-1">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="h-5 w-5" />
               {call.title}
-              {requiresReview && reviewStatus === 'pending' && (
-                <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300">
-                  Review Needed
-                </Badge>
-              )}
-              {reviewStatus === 'approved' && (
-                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
-                  Approved
-                </Badge>
-              )}
-              {reviewStatus === 'rejected' && (
-                <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300">
-                  Rejected
-                </Badge>
-              )}
             </CardTitle>
-            <CardDescription>
-              Uploaded on {new Date(call.created_at!).toLocaleDateString()}
-              {call.duration_seconds && ` • ${Math.floor(call.duration_seconds / 60)}:${(call.duration_seconds % 60).toString().padStart(2, '0')}`}
-            </CardDescription>
-            
-            <CallMetadataBadges call={call} />
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge className={getStatusColor(call.status || 'uploaded')}>
+                {call.status || 'uploaded'}
+              </Badge>
+              {call.duration_seconds && (
+                <Badge variant="outline" className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {formatDuration(call.duration_seconds)}
+                </Badge>
+              )}
+              <CallMetadataBadges call={call} />
+            </div>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onDelete(call.id)}
-            className="text-red-600 hover:text-red-800"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              </CollapsibleTrigger>
+            </Collapsible>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onDelete(call.id)}
+              className="text-red-600 hover:text-red-700"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </CardHeader>
-      <CardContent>
-        {/* Audio Player with enhanced controls */}
-        {call.file_url && (
-          <div className="mb-6">
-            <AudioPlayer 
-              src={call.file_url} 
-              title={`${call.title} - Audio Recording`}
-              onTimeUpdate={handleTimeUpdate}
-              onSeekTo={seekToRef}
-              isPlaying={isPlaying}
-              onPlayStateChange={handlePlayStateChange}
-            />
-          </div>
-        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <TranscriptionDisplay 
-            transcription={transcription}
-            isTranscribing={isTranscribing}
-            currentTime={currentTime}
-            isPlaying={isPlaying}
-            onSeekTo={handleSeekTo}
-          />
+      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+        <CollapsibleContent>
+          <CardContent className="pt-0">
+            <div className="space-y-6">
+              {/* Audio Player */}
+              {call.file_url && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold flex items-center gap-2">
+                    <Play className="h-4 w-4" />
+                    Audio
+                  </h4>
+                  <AudioPlayer
+                    ref={audioRef}
+                    src={call.file_url}
+                    transcription={transcription}
+                  />
+                </div>
+              )}
 
-          <QualityAnalysisDisplay 
-            qualityScore={qualityScore}
-            isAnalyzing={isAnalyzing}
-            callStatus={call.status!}
-          />
+              {/* Transcription */}
+              <TranscriptionDisplay
+                transcription={transcription}
+                isTranscribing={call.status === 'transcribing'}
+                callStatus={call.status || 'uploaded'}
+              />
 
-          <CallDetailsAndTags 
-            call={call}
-            tags={tags}
-          />
-        </div>
-      </CardContent>
+              {/* Quality Analysis */}
+              <QualityAnalysisDisplay
+                qualityScore={qualityScore}
+                isAnalyzing={isAnalyzing}
+                callStatus={call.status || 'uploaded'}
+                callId={call.id}
+                onRetrySuccess={handleRetrySuccess}
+              />
+
+              {/* Call Details and Tags */}
+              <CallDetailsAndTags call={call} tags={tags} />
+            </div>
+          </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 };

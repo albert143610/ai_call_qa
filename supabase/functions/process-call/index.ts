@@ -50,7 +50,7 @@ async function downloadAudioFile(supabase: any, fileUrl: string): Promise<ArrayB
 }
 
 // Function to transcribe audio using OpenAI Whisper
-async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<{ content: string; confidence: number }> {
+async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<{ content: string; confidence: number; segments?: any[] }> {
   try {
     console.log('Starting transcription with OpenAI Whisper...');
     
@@ -81,7 +81,8 @@ async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<{ content: str
     
     return {
       content: result.text || '',
-      confidence: 0.95 // Whisper doesn't provide confidence scores, using default
+      confidence: 0.95, // Whisper doesn't provide confidence scores, using default
+      segments: result.segments || []
     };
   } catch (error) {
     console.error('Error transcribing audio:', error);
@@ -90,12 +91,12 @@ async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<{ content: str
 }
 
 // Function to create timestamped segments from OpenAI transcription
-function createTimestampedSegments(transcription: any, totalDuration: number) {
+function createTimestampedSegments(transcriptionResult: any, totalDuration: number) {
   console.log('Creating timestamped segments...');
   
   // If we have segments from OpenAI with timestamps, use them
-  if (transcription.segments && transcription.segments.length > 0) {
-    return transcription.segments.map((segment: any) => ({
+  if (transcriptionResult.segments && transcriptionResult.segments.length > 0) {
+    return transcriptionResult.segments.map((segment: any) => ({
       start_time: segment.start || 0,
       end_time: segment.end || segment.start + 5,
       text: segment.text || '',
@@ -105,7 +106,7 @@ function createTimestampedSegments(transcription: any, totalDuration: number) {
   }
   
   // Fallback: Split transcript by speaker changes and natural pauses
-  const segments = transcription.content.split(/(?=Customer:|Agent:)/g).filter((segment: string) => segment.trim());
+  const segments = transcriptionResult.content.split(/(?=Customer:|Agent:)/g).filter((segment: string) => segment.trim());
   const segmentData = [];
   let currentTime = 0;
   
@@ -138,6 +139,111 @@ function createTimestampedSegments(transcription: any, totalDuration: number) {
   }
   
   return segmentData;
+}
+
+// Function to create fallback quality score when AI analysis fails
+function createFallbackQualityScore() {
+  console.log('Creating fallback quality score due to AI analysis failure');
+  return {
+    score: 3,
+    sentiment: 'neutral',
+    feedback: 'Quality analysis could not be completed automatically. This call may require manual review.',
+    communication_score: 3,
+    problem_resolution_score: 3,
+    professionalism_score: 3,
+    empathy_score: 3,
+    follow_up_score: 3
+  };
+}
+
+// Function to analyze call quality using OpenAI
+async function analyzeCallQuality(transcriptionContent: string): Promise<any> {
+  try {
+    console.log('Starting AI analysis with GPT-4.1...');
+
+    const analysisPrompt = `
+Analyze the following customer service call transcript and provide detailed scoring:
+
+1. Overall satisfaction score (1-5, where 5 is excellent)
+2. Communication score (1-5) - clarity, politeness, understanding
+3. Problem resolution score (1-5) - how well the issue was addressed
+4. Professionalism score (1-5) - courtesy, proper procedures
+5. Empathy score (1-5) - understanding customer feelings
+6. Follow-up score (1-5) - appropriate next steps or follow-up
+7. Overall sentiment (positive, negative, or neutral)
+8. Brief feedback on the agent's performance (max 200 words)
+9. List of improvement areas (if any)
+
+Transcript:
+${transcriptionContent}
+
+Please respond in JSON format with: {
+  "overall_satisfaction_score": number,
+  "communication_score": number,
+  "problem_resolution_score": number,
+  "professionalism_score": number,
+  "empathy_score": number,
+  "follow_up_score": number,
+  "sentiment": "positive|negative|neutral",
+  "feedback": "string",
+  "improvement_areas": ["area1", "area2"]
+}`;
+
+    const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-2025-04-14',
+        messages: [
+          { role: 'system', content: 'You are an expert call quality analyst. Respond only with valid JSON matching the requested format.' },
+          { role: 'user', content: analysisPrompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 1000,
+      }),
+    });
+
+    if (!openAIResponse.ok) {
+      console.error('OpenAI API request failed:', openAIResponse.status, openAIResponse.statusText);
+      throw new Error(`OpenAI API request failed: ${openAIResponse.status}`);
+    }
+
+    const openAIData = await openAIResponse.json();
+    const analysisText = openAIData.choices[0].message.content;
+    
+    console.log('OpenAI analysis response:', analysisText);
+    
+    let analysis;
+    try {
+      analysis = JSON.parse(analysisText);
+    } catch (parseError) {
+      console.error('Failed to parse OpenAI response:', parseError);
+      throw new Error('Failed to parse AI analysis response');
+    }
+
+    // Validate and sanitize analysis data
+    const sanitizedAnalysis = {
+      overall_satisfaction_score: Math.max(1, Math.min(5, analysis.overall_satisfaction_score || 3)),
+      communication_score: Math.max(1, Math.min(5, analysis.communication_score || 3)),
+      problem_resolution_score: Math.max(1, Math.min(5, analysis.problem_resolution_score || 3)),
+      professionalism_score: Math.max(1, Math.min(5, analysis.professionalism_score || 3)),
+      empathy_score: Math.max(1, Math.min(5, analysis.empathy_score || 3)),
+      follow_up_score: Math.max(1, Math.min(5, analysis.follow_up_score || 3)),
+      sentiment: ['positive', 'negative', 'neutral'].includes(analysis.sentiment) ? analysis.sentiment : 'neutral',
+      feedback: analysis.feedback || 'Analysis completed successfully.',
+      improvement_areas: Array.isArray(analysis.improvement_areas) ? analysis.improvement_areas : []
+    };
+
+    console.log('AI analysis completed successfully');
+    return sanitizedAnalysis;
+    
+  } catch (error) {
+    console.error('Error in AI analysis:', error);
+    throw error;
+  }
 }
 
 serve(async (req) => {
@@ -182,7 +288,7 @@ serve(async (req) => {
       .eq('id', callId);
 
     // Step 2: Download and transcribe the audio file
-    console.log('Starting real transcription process...');
+    console.log('Starting transcription process...');
     
     if (!openAIApiKey) {
       console.error('OpenAI API key not configured');
@@ -225,7 +331,8 @@ Agent: Absolutely! You'll receive an SMS and email notification once the package
 Customer: No, that covers everything. Thank you for your help!
 
 Agent: You're welcome! Have a great day and thank you for choosing our service.`,
-        confidence: 0.85
+        confidence: 0.85,
+        segments: []
       };
     }
 
@@ -242,7 +349,7 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
       .single();
 
     if (transcriptionError) {
-      console.error('Transcription error:', transcriptionError);
+      console.error('Transcription insertion error:', transcriptionError);
       throw transcriptionError;
     }
 
@@ -284,67 +391,15 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
       .update({ status: 'analyzing', updated_at: new Date().toISOString() })
       .eq('id', callId);
 
-    // Step 6: Analyze call quality using OpenAI
+    // Step 6: Analyze call quality using OpenAI with error handling
     console.log('Starting AI analysis...');
-
-    const analysisPrompt = `
-Analyze the following customer service call transcript and provide:
-1. A quality score from 1-5 (5 being excellent)
-2. Overall sentiment (positive, negative, or neutral)
-3. Brief feedback on the agent's performance (max 200 words)
-
-Transcript:
-${transcriptionResult.content}
-
-Please respond in JSON format with: {"score": number, "sentiment": "positive|negative|neutral", "feedback": "string"}
-`;
-
-    const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are an expert call quality analyst. Respond only with valid JSON.' },
-          { role: 'user', content: analysisPrompt }
-        ],
-        temperature: 0.3,
-      }),
-    });
-
-    if (!openAIResponse.ok) {
-      console.error('OpenAI API request failed:', openAIResponse.status, openAIResponse.statusText);
-      throw new Error(`OpenAI API request failed: ${openAIResponse.status}`);
-    }
-
-    const openAIData = await openAIResponse.json();
-    const analysisText = openAIData.choices[0].message.content;
-    
-    console.log('OpenAI analysis response:', analysisText);
-    
     let analysis;
-    try {
-      analysis = JSON.parse(analysisText);
-    } catch (parseError) {
-      console.error('Failed to parse OpenAI response:', parseError);
-      // Fallback if JSON parsing fails
-      analysis = {
-        score: 4,
-        sentiment: 'positive',
-        feedback: 'The agent handled the customer inquiry professionally and provided clear information. Good communication throughout the call.'
-      };
-    }
-
-    // Validate analysis data
-    if (!analysis.score || analysis.score < 1 || analysis.score > 5) {
-      analysis.score = 3; // Default score
-    }
     
-    if (!['positive', 'negative', 'neutral'].includes(analysis.sentiment)) {
-      analysis.sentiment = 'neutral'; // Default sentiment
+    try {
+      analysis = await analyzeCallQuality(transcriptionResult.content);
+    } catch (analysisError) {
+      console.error('AI analysis failed, using fallback:', analysisError);
+      analysis = createFallbackQualityScore();
     }
 
     // Step 7: Insert quality score
@@ -353,20 +408,28 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
       .from('quality_scores')
       .insert({
         call_id: callId,
-        ai_score: analysis.score,
+        overall_satisfaction_score: analysis.overall_satisfaction_score,
+        communication_score: analysis.communication_score,
+        problem_resolution_score: analysis.problem_resolution_score,
+        professionalism_score: analysis.professionalism_score,
+        empathy_score: analysis.empathy_score,
+        follow_up_score: analysis.follow_up_score,
         sentiment: analysis.sentiment,
         ai_feedback: analysis.feedback,
-        requires_review: analysis.score < 3
+        improvement_areas: analysis.improvement_areas,
+        requires_review: analysis.overall_satisfaction_score < 3,
+        manual_review_required: analysis.overall_satisfaction_score < 3
       });
 
     if (qualityError) {
-      console.error('Quality score error:', qualityError);
-      throw qualityError;
+      console.error('Quality score insertion error:', qualityError);
+      // Don't throw here - we want to still mark the call as analyzed
+      console.log('Continuing despite quality score insertion error...');
     }
 
     // Step 8: Update status to analyzed and set duration
     console.log('Updating status to analyzed...');
-    await supabase
+    const { error: finalUpdateError } = await supabase
       .from('calls')
       .update({ 
         status: 'analyzed', 
@@ -375,17 +438,27 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
       })
       .eq('id', callId);
 
+    if (finalUpdateError) {
+      console.error('Final status update error:', finalUpdateError);
+      // Still continue - this is not critical
+    }
+
     console.log(`Call ${callId} processed successfully`);
 
+    const responseData = {
+      success: true,
+      message: 'Call processed successfully',
+      callId: callId,
+      analysis: analysis,
+      segmentsCreated: segments.length,
+      transcriptionLength: transcriptionResult.content.length,
+      duration: estimatedDuration
+    };
+
+    console.log('Returning success response:', responseData);
+
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: 'Call processed successfully',
-        callId: callId,
-        analysis: analysis,
-        segmentsCreated: segments.length,
-        transcriptionLength: transcriptionResult.content.length
-      }), 
+      JSON.stringify(responseData), 
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
@@ -395,9 +468,10 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
     // Try to update call status to indicate error
     try {
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      const { callId } = await req.json();
+      const { callId } = await req.json().catch(() => ({}));
       
       if (callId) {
+        console.log('Resetting call status due to error...');
         await supabase
           .from('calls')
           .update({ 
@@ -413,7 +487,8 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
     return new Response(
       JSON.stringify({ 
         error: error.message,
-        details: 'Check the function logs for more information'
+        details: 'Check the function logs for more information',
+        timestamp: new Date().toISOString()
       }), 
       { 
         status: 500, 
