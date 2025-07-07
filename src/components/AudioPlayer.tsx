@@ -29,15 +29,31 @@ export const AudioPlayer = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [audioSrc, setAudioSrc] = useState(src);
 
   // Use external playing state if provided, otherwise use internal state
   const isPlaying = externalIsPlaying !== undefined ? externalIsPlaying : internalIsPlaying;
 
+  // Handle src changes
+  useEffect(() => {
+    if (src !== audioSrc) {
+      console.log('Audio src changed from', audioSrc, 'to', src);
+      setAudioSrc(src);
+      setIsLoading(true);
+      setError(null);
+      setCurrentTime(0);
+      setDuration(0);
+      setInternalIsPlaying(false);
+      onPlayStateChange?.(false);
+    }
+  }, [src, audioSrc, onPlayStateChange]);
+
+  // Setup audio element event listeners
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    console.log('Loading audio from:', src);
+    console.log('Setting up audio element with src:', audioSrc);
 
     const updateTime = () => {
       const newTime = audio.currentTime;
@@ -47,12 +63,13 @@ export const AudioPlayer = ({
     
     const updateDuration = () => {
       console.log('Audio duration loaded:', audio.duration);
-      setDuration(audio.duration);
+      setDuration(audio.duration || 0);
       setIsLoading(false);
       setError(null);
     };
     
     const handleEnded = () => {
+      console.log('Audio playback ended');
       setInternalIsPlaying(false);
       onPlayStateChange?.(false);
     };
@@ -63,8 +80,8 @@ export const AudioPlayer = ({
       setError(null);
     };
     
-    const handleCanPlayThrough = () => {
-      console.log('Audio can play through');
+    const handleCanPlay = () => {
+      console.log('Audio can play');
       setIsLoading(false);
       setError(null);
     };
@@ -80,38 +97,71 @@ export const AudioPlayer = ({
       if (errorCode === 1) userFriendlyError = 'Audio loading aborted';
       else if (errorCode === 2) userFriendlyError = 'Network error loading audio';
       else if (errorCode === 3) userFriendlyError = 'Audio decoding error';
-      else if (errorCode === 4) userFriendlyError = 'Audio format not supported or access denied';
+      else if (errorCode === 4) userFriendlyError = 'Audio format not supported';
       
       setError(userFriendlyError);
       setIsLoading(false);
+      setInternalIsPlaying(false);
+      onPlayStateChange?.(false);
     };
-    
-    const handleLoadedData = () => {
-      console.log('Audio data loaded');
-      setIsLoading(false);
+
+    const handlePlay = () => {
+      console.log('Audio started playing');
+      setInternalIsPlaying(true);
+      onPlayStateChange?.(true);
+    };
+
+    const handlePause = () => {
+      console.log('Audio paused');
+      setInternalIsPlaying(false);
+      onPlayStateChange?.(false);
     };
 
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('loadedmetadata', updateDuration);
-    audio.addEventListener('loadeddata', handleLoadedData);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('loadstart', handleLoadStart);
-    audio.addEventListener('canplaythrough', handleCanPlayThrough);
+    audio.addEventListener('canplay', handleCanPlay);
     audio.addEventListener('error', handleError);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
 
-    audio.preload = 'metadata';
-    audio.load();
+    // Only reload if src actually changed
+    if (audio.src !== audioSrc) {
+      audio.src = audioSrc;
+      audio.load();
+    }
 
     return () => {
       audio.removeEventListener('timeupdate', updateTime);
       audio.removeEventListener('loadedmetadata', updateDuration);
-      audio.removeEventListener('loadeddata', handleLoadedData);
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('loadstart', handleLoadStart);
-      audio.removeEventListener('canplaythrough', handleCanPlayThrough);
+      audio.removeEventListener('canplay', handleCanPlay);
       audio.removeEventListener('error', handleError);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
     };
-  }, [src, onTimeUpdate, onPlayStateChange]);
+  }, [audioSrc, onTimeUpdate, onPlayStateChange]);
+
+  // Sync external playing state with audio element
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || error) return;
+
+    if (externalIsPlaying !== undefined) {
+      if (externalIsPlaying && audio.paused) {
+        console.log('External state says play, but audio is paused - starting playback');
+        audio.play().catch(err => {
+          console.error('Error playing audio from external state:', err);
+          setError('Failed to play audio');
+        });
+      } else if (!externalIsPlaying && !audio.paused) {
+        console.log('External state says pause, but audio is playing - pausing playback');
+        audio.pause();
+      }
+    }
+  }, [externalIsPlaying, error]);
 
   // Expose seek function to parent
   useEffect(() => {
@@ -120,9 +170,11 @@ export const AudioPlayer = ({
         const audio = audioRef.current;
         if (!audio || error) return;
         
-        audio.currentTime = Math.max(0, Math.min(duration, time));
-        setCurrentTime(time);
-        onTimeUpdate?.(time);
+        const seekTime = Math.max(0, Math.min(duration, time));
+        console.log('Seeking to time:', seekTime);
+        audio.currentTime = seekTime;
+        setCurrentTime(seekTime);
+        onTimeUpdate?.(seekTime);
       };
 
       onSeekTo.current = seekHandler;
@@ -135,17 +187,14 @@ export const AudioPlayer = ({
 
     try {
       if (isPlaying) {
+        console.log('Pausing audio');
         audio.pause();
-        setInternalIsPlaying(false);
-        onPlayStateChange?.(false);
       } else {
-        console.log('Attempting to play audio');
+        console.log('Starting audio playback');
         await audio.play();
-        setInternalIsPlaying(true);
-        onPlayStateChange?.(true);
       }
     } catch (error) {
-      console.error('Error playing audio:', error);
+      console.error('Error toggling audio playback:', error);
       setError('Failed to play audio');
     }
   };
@@ -155,6 +204,7 @@ export const AudioPlayer = ({
     if (!audio || error) return;
     
     const newTime = value[0];
+    console.log('Manual seek to:', newTime);
     audio.currentTime = newTime;
     setCurrentTime(newTime);
     onTimeUpdate?.(newTime);
@@ -188,6 +238,7 @@ export const AudioPlayer = ({
     if (!audio || error) return;
     
     const newTime = Math.max(0, Math.min(duration, audio.currentTime + seconds));
+    console.log('Skipping to time:', newTime);
     audio.currentTime = newTime;
     setCurrentTime(newTime);
     onTimeUpdate?.(newTime);
@@ -208,12 +259,13 @@ export const AudioPlayer = ({
           <span className="text-sm font-medium">Audio Error</span>
         </div>
         <p className="text-sm text-red-600 mt-1">{error}</p>
-        <p className="text-xs text-red-500 mt-1">Audio URL: {src}</p>
+        <p className="text-xs text-red-500 mt-1">Audio URL: {audioSrc}</p>
         <Button 
           variant="outline" 
           size="sm" 
           className="mt-2"
           onClick={() => {
+            console.log('Retrying audio load');
             setError(null);
             setIsLoading(true);
             if (audioRef.current) {
@@ -231,8 +283,8 @@ export const AudioPlayer = ({
     <div className="bg-white border rounded-lg p-4 space-y-4">
       <audio 
         ref={audioRef} 
-        src={src} 
         preload="metadata"
+        crossOrigin="anonymous"
       />
       
       {title && <h4 className="font-medium text-sm text-gray-900">{title}</h4>}
@@ -319,7 +371,7 @@ export const AudioPlayer = ({
       
       {isLoading && (
         <div className="text-xs text-gray-500 text-center">
-          Loading audio... ({src})
+          Loading audio...
         </div>
       )}
     </div>
