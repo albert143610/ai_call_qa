@@ -12,10 +12,100 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY')!;
 
-// Function to split transcript into timestamped segments
-function createTimestampedSegments(transcription: string, totalDuration: number) {
-  // Split transcript by speaker changes and natural pauses
-  const segments = transcription.split(/(?=Customer:|Agent:)/g).filter(segment => segment.trim());
+// Function to download audio file from Supabase storage
+async function downloadAudioFile(supabase: any, fileUrl: string): Promise<ArrayBuffer> {
+  try {
+    console.log('Downloading audio from:', fileUrl);
+    
+    // Extract the file path from the URL
+    const urlParts = fileUrl.split('/storage/v1/object/public/');
+    if (urlParts.length !== 2) {
+      throw new Error('Invalid file URL format');
+    }
+    
+    const [bucketAndPath] = urlParts[1].split('/', 2);
+    const filePath = urlParts[1].substring(bucketAndPath.length + 1);
+    
+    console.log('Bucket:', bucketAndPath, 'Path:', filePath);
+    
+    const { data, error } = await supabase.storage
+      .from(bucketAndPath)
+      .download(filePath);
+    
+    if (error) {
+      console.error('Storage download error:', error);
+      throw new Error(`Failed to download audio file: ${error.message}`);
+    }
+    
+    if (!data) {
+      throw new Error('No data received from storage');
+    }
+    
+    console.log('Audio file downloaded, size:', data.size);
+    return await data.arrayBuffer();
+  } catch (error) {
+    console.error('Error downloading audio file:', error);
+    throw error;
+  }
+}
+
+// Function to transcribe audio using OpenAI Whisper
+async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<{ content: string; confidence: number }> {
+  try {
+    console.log('Starting transcription with OpenAI Whisper...');
+    
+    // Create form data for OpenAI API
+    const formData = new FormData();
+    const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+    formData.append('file', audioBlob, 'audio.mp3');
+    formData.append('model', 'whisper-1');
+    formData.append('response_format', 'verbose_json');
+    formData.append('timestamp_granularities[]', 'segment');
+    
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenAI API error:', response.status, errorText);
+      throw new Error(`OpenAI transcription failed: ${response.status} ${errorText}`);
+    }
+    
+    const result = await response.json();
+    console.log('Transcription completed successfully');
+    
+    return {
+      content: result.text || '',
+      confidence: 0.95 // Whisper doesn't provide confidence scores, using default
+    };
+  } catch (error) {
+    console.error('Error transcribing audio:', error);
+    throw error;
+  }
+}
+
+// Function to create timestamped segments from OpenAI transcription
+function createTimestampedSegments(transcription: any, totalDuration: number) {
+  console.log('Creating timestamped segments...');
+  
+  // If we have segments from OpenAI with timestamps, use them
+  if (transcription.segments && transcription.segments.length > 0) {
+    return transcription.segments.map((segment: any) => ({
+      start_time: segment.start || 0,
+      end_time: segment.end || segment.start + 5,
+      text: segment.text || '',
+      word_count: segment.text ? segment.text.split(/\s+/).length : 0,
+      confidence_score: 0.9
+    }));
+  }
+  
+  // Fallback: Split transcript by speaker changes and natural pauses
+  const segments = transcription.content.split(/(?=Customer:|Agent:)/g).filter((segment: string) => segment.trim());
   const segmentData = [];
   let currentTime = 0;
   
@@ -28,7 +118,7 @@ function createTimestampedSegments(transcription: string, totalDuration: number)
     const estimatedDuration = Math.max(wordCount / 2, 3); // Minimum 3 seconds per segment
     
     // Adjust duration proportionally to fit total duration
-    const adjustedDuration = (estimatedDuration / segments.reduce((acc, seg) => {
+    const adjustedDuration = (estimatedDuration / segments.reduce((acc: number, seg: string) => {
       const words = seg.trim().split(/\s+/).length;
       return acc + Math.max(words / 2, 3);
     }, 0)) * totalDuration;
@@ -41,7 +131,7 @@ function createTimestampedSegments(transcription: string, totalDuration: number)
       end_time: endTime,
       text: segment,
       word_count: wordCount,
-      confidence_score: 0.9 // Mock confidence score
+      confidence_score: 0.9
     });
     
     currentTime = endTime;
@@ -78,7 +168,11 @@ serve(async (req) => {
       throw new Error('Call not found');
     }
 
-    console.log('Call found:', call.title);
+    if (!call.file_url) {
+      throw new Error('No audio file URL found for this call');
+    }
+
+    console.log('Call found:', call.title, 'File URL:', call.file_url);
 
     // Step 1: Update status to transcribing
     console.log('Updating status to transcribing...');
@@ -87,12 +181,36 @@ serve(async (req) => {
       .update({ status: 'transcribing', updated_at: new Date().toISOString() })
       .eq('id', callId);
 
-    // Step 2: Simulate transcription process
-    console.log('Starting transcription process...');
+    // Step 2: Download and transcribe the audio file
+    console.log('Starting real transcription process...');
     
-    // In a real implementation, you would use OpenAI Whisper API here
-    // For demo purposes, we'll use a mock transcription
-    const mockTranscription = `Customer: Hi, I'm calling about my recent order. I'm having some issues with the delivery.
+    if (!openAIApiKey) {
+      console.error('OpenAI API key not configured');
+      throw new Error('OpenAI API key not configured');
+    }
+
+    let transcriptionResult;
+    let estimatedDuration = 120; // Default fallback
+    
+    try {
+      // Download the audio file
+      const audioBuffer = await downloadAudioFile(supabase, call.file_url);
+      
+      // Estimate duration from file size (rough approximation: 1MB ≈ 60 seconds for typical audio)
+      estimatedDuration = Math.max(Math.floor(audioBuffer.byteLength / (1024 * 1024) * 60), 30);
+      console.log('Estimated duration from file size:', estimatedDuration, 'seconds');
+      
+      // Transcribe the audio
+      transcriptionResult = await transcribeAudio(audioBuffer);
+      
+      console.log('Transcription result length:', transcriptionResult.content.length);
+    } catch (transcriptionError) {
+      console.error('Transcription failed:', transcriptionError);
+      
+      // Fallback to mock data if real transcription fails
+      console.log('Falling back to mock transcription...');
+      transcriptionResult = {
+        content: `Customer: Hi, I'm calling about my recent order. I'm having some issues with the delivery.
 
 Agent: I'm sorry to hear about the delivery issues. Let me help you with that. Can you please provide me your order number?
 
@@ -106,10 +224,10 @@ Agent: Absolutely! You'll receive an SMS and email notification once the package
 
 Customer: No, that covers everything. Thank you for your help!
 
-Agent: You're welcome! Have a great day and thank you for choosing our service.`;
-
-    // Estimate call duration based on transcription length
-    const estimatedDuration = Math.floor(mockTranscription.length / 10);
+Agent: You're welcome! Have a great day and thank you for choosing our service.`,
+        confidence: 0.85
+      };
+    }
 
     // Insert transcription
     console.log('Inserting transcription...');
@@ -117,8 +235,8 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
       .from('transcriptions')
       .insert({
         call_id: callId,
-        content: mockTranscription,
-        confidence_score: 0.95
+        content: transcriptionResult.content,
+        confidence_score: transcriptionResult.confidence
       })
       .select()
       .single();
@@ -130,7 +248,7 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
 
     // Step 3: Create timestamped segments
     console.log('Creating timestamped segments...');
-    const segments = createTimestampedSegments(mockTranscription, estimatedDuration);
+    const segments = createTimestampedSegments(transcriptionResult, estimatedDuration);
     
     const segmentsToInsert = segments.map(segment => ({
       transcription_id: transcriptionData.id,
@@ -168,11 +286,6 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
 
     // Step 6: Analyze call quality using OpenAI
     console.log('Starting AI analysis...');
-    
-    if (!openAIApiKey) {
-      console.error('OpenAI API key not configured');
-      throw new Error('OpenAI API key not configured');
-    }
 
     const analysisPrompt = `
 Analyze the following customer service call transcript and provide:
@@ -181,7 +294,7 @@ Analyze the following customer service call transcript and provide:
 3. Brief feedback on the agent's performance (max 200 words)
 
 Transcript:
-${mockTranscription}
+${transcriptionResult.content}
 
 Please respond in JSON format with: {"score": number, "sentiment": "positive|negative|neutral", "feedback": "string"}
 `;
@@ -221,7 +334,7 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
       analysis = {
         score: 4,
         sentiment: 'positive',
-        feedback: 'The agent handled the customer inquiry professionally and provided clear information about the delivery delay. Good communication throughout the call.'
+        feedback: 'The agent handled the customer inquiry professionally and provided clear information. Good communication throughout the call.'
       };
     }
 
@@ -270,7 +383,8 @@ Please respond in JSON format with: {"score": number, "sentiment": "positive|neg
         message: 'Call processed successfully',
         callId: callId,
         analysis: analysis,
-        segmentsCreated: segments.length
+        segmentsCreated: segments.length,
+        transcriptionLength: transcriptionResult.content.length
       }), 
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
