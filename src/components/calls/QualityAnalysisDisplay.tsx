@@ -1,8 +1,8 @@
 
 import { Badge } from '@/components/ui/badge';
-import { BarChart3, TrendingUp, MessageSquare, AlertTriangle } from 'lucide-react';
+import { BarChart3, TrendingUp, MessageSquare } from 'lucide-react';
 import { QualityAnalysisLoadingState } from './LoadingStates';
-import { RetryAnalysisButton } from './RetryAnalysisButton';
+import { AnalysisErrorState } from './AnalysisErrorState';
 import type { Tables } from '@/integrations/supabase/types';
 
 type QualityScore = Tables<'quality_scores'>;
@@ -37,7 +37,11 @@ export const QualityAnalysisDisplay = ({
   callId,
   onRetrySuccess
 }: QualityAnalysisDisplayProps) => {
+  // Determine the state of the analysis
+  const isCurrentlyAnalyzing = callStatus === 'analyzing';
   const isStuckAnalyzing = callStatus === 'analyzing' && !qualityScore;
+  const isAnalyzedButNoData = callStatus === 'analyzed' && !qualityScore;
+  const hasValidAnalysis = qualityScore && callStatus === 'analyzed';
   
   return (
     <div className="space-y-4">
@@ -46,7 +50,7 @@ export const QualityAnalysisDisplay = ({
         Quality Analysis
       </h4>
       
-      {qualityScore ? (
+      {hasValidAnalysis ? (
         <div className="space-y-4">
           {/* Overall Score - More prominent */}
           {qualityScore.overall_satisfaction_score && (
@@ -150,25 +154,22 @@ export const QualityAnalysisDisplay = ({
             </div>
           )}
         </div>
-      ) : isAnalyzing ? (
+      ) : isCurrentlyAnalyzing ? (
         <QualityAnalysisLoadingState />
+      ) : isAnalyzedButNoData ? (
+        <AnalysisErrorState
+          callId={callId}
+          callStatus={callStatus}
+          errorType="failed"
+          onRetrySuccess={onRetrySuccess}
+        />
       ) : isStuckAnalyzing ? (
-        <div className="space-y-3">
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertTriangle className="h-4 w-4 text-yellow-600" />
-              <p className="font-medium text-yellow-800">Analysis Taking Longer Than Expected</p>
-            </div>
-            <p className="text-sm text-yellow-700 mb-3">
-              The quality analysis seems to be stuck. You can try restarting the analysis process.
-            </p>
-            <RetryAnalysisButton 
-              callId={callId}
-              currentStatus={callStatus}
-              onRetrySuccess={onRetrySuccess}
-            />
-          </div>
-        </div>
+        <AnalysisErrorState
+          callId={callId}
+          callStatus={callStatus}
+          errorType="stuck"
+          onRetrySuccess={onRetrySuccess}
+        />
       ) : (
         <p className="text-gray-500 text-sm">
           {callStatus === 'uploaded' ? 'Waiting for transcription to complete' : 'No quality analysis available'}

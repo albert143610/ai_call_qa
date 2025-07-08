@@ -145,21 +145,22 @@ function createTimestampedSegments(transcriptionResult: any, totalDuration: numb
 function createFallbackQualityScore() {
   console.log('Creating fallback quality score due to AI analysis failure');
   return {
-    score: 3,
-    sentiment: 'neutral',
-    feedback: 'Quality analysis could not be completed automatically. This call may require manual review.',
+    overall_satisfaction_score: 3,
     communication_score: 3,
     problem_resolution_score: 3,
     professionalism_score: 3,
     empathy_score: 3,
-    follow_up_score: 3
+    follow_up_score: 3,
+    sentiment: 'neutral',
+    feedback: 'Quality analysis could not be completed automatically. This call may require manual review.',
+    improvement_areas: []
   };
 }
 
 // Function to analyze call quality using OpenAI
 async function analyzeCallQuality(transcriptionContent: string): Promise<any> {
   try {
-    console.log('Starting AI analysis with GPT-4.1...');
+    console.log('Starting AI analysis with GPT-4o-mini...');
 
     const analysisPrompt = `
 Analyze the following customer service call transcript and provide detailed scoring:
@@ -196,7 +197,7 @@ Please respond in JSON format with: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-2025-04-14',
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: 'You are an expert call quality analyst. Respond only with valid JSON matching the requested format.' },
           { role: 'user', content: analysisPrompt }
@@ -207,8 +208,9 @@ Please respond in JSON format with: {
     });
 
     if (!openAIResponse.ok) {
-      console.error('OpenAI API request failed:', openAIResponse.status, openAIResponse.statusText);
-      throw new Error(`OpenAI API request failed: ${openAIResponse.status}`);
+      const errorText = await openAIResponse.text();
+      console.error('OpenAI API request failed:', openAIResponse.status, errorText);
+      throw new Error(`OpenAI API request failed: ${openAIResponse.status} - ${errorText}`);
     }
 
     const openAIData = await openAIResponse.json();
@@ -246,15 +248,42 @@ Please respond in JSON format with: {
   }
 }
 
+// Function to reset call status on failure
+async function resetCallStatusOnFailure(supabase: any, callId: string, reason: string) {
+  console.log(`Resetting call ${callId} status due to: ${reason}`);
+  
+  try {
+    const { error } = await supabase
+      .from('calls')
+      .update({ 
+        status: 'uploaded', 
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', callId);
+    
+    if (error) {
+      console.error('Failed to reset call status:', error);
+    } else {
+      console.log('Call status reset to uploaded for retry');
+    }
+  } catch (error) {
+    console.error('Error resetting call status:', error);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let callId = '';
+  let supabase;
+  
   try {
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    supabase = createClient(supabaseUrl, supabaseServiceKey);
     
-    const { callId } = await req.json();
+    const { callId: requestCallId } = await req.json();
+    callId = requestCallId;
     
     if (!callId) {
       throw new Error('Call ID is required');
@@ -397,35 +426,48 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
     
     try {
       analysis = await analyzeCallQuality(transcriptionResult.content);
+      console.log('Analysis completed successfully:', analysis);
     } catch (analysisError) {
       console.error('AI analysis failed, using fallback:', analysisError);
       analysis = createFallbackQualityScore();
     }
 
-    // Step 7: Insert quality score
+    // Step 7: Insert quality score with proper error handling
     console.log('Inserting quality analysis...');
-    const { error: qualityError } = await supabase
+    const qualityScoreData = {
+      call_id: callId,
+      overall_satisfaction_score: analysis.overall_satisfaction_score,
+      communication_score: analysis.communication_score,
+      problem_resolution_score: analysis.problem_resolution_score,
+      professionalism_score: analysis.professionalism_score,
+      empathy_score: analysis.empathy_score,
+      follow_up_score: analysis.follow_up_score,
+      sentiment: analysis.sentiment,
+      ai_feedback: analysis.feedback,
+      improvement_areas: analysis.improvement_areas,
+      requires_review: analysis.overall_satisfaction_score < 3,
+      manual_review_required: analysis.overall_satisfaction_score < 3
+    };
+
+    console.log('Quality score data to insert:', qualityScoreData);
+
+    const { data: qualityData, error: qualityError } = await supabase
       .from('quality_scores')
-      .insert({
-        call_id: callId,
-        overall_satisfaction_score: analysis.overall_satisfaction_score,
-        communication_score: analysis.communication_score,
-        problem_resolution_score: analysis.problem_resolution_score,
-        professionalism_score: analysis.professionalism_score,
-        empathy_score: analysis.empathy_score,
-        follow_up_score: analysis.follow_up_score,
-        sentiment: analysis.sentiment,
-        ai_feedback: analysis.feedback,
-        improvement_areas: analysis.improvement_areas,
-        requires_review: analysis.overall_satisfaction_score < 3,
-        manual_review_required: analysis.overall_satisfaction_score < 3
-      });
+      .insert(qualityScoreData)
+      .select()
+      .single();
 
     if (qualityError) {
       console.error('Quality score insertion error:', qualityError);
-      // Don't throw here - we want to still mark the call as analyzed
-      console.log('Continuing despite quality score insertion error...');
+      console.error('Quality score data that failed:', qualityScoreData);
+      
+      // This is a critical error - reset the call status so user can retry
+      await resetCallStatusOnFailure(supabase, callId, 'Quality score insertion failed');
+      
+      throw new Error(`Failed to insert quality score: ${qualityError.message}`);
     }
+
+    console.log('Quality score inserted successfully:', qualityData);
 
     // Step 8: Update status to analyzed and set duration
     console.log('Updating status to analyzed...');
@@ -452,7 +494,8 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
       analysis: analysis,
       segmentsCreated: segments.length,
       transcriptionLength: transcriptionResult.content.length,
-      duration: estimatedDuration
+      duration: estimatedDuration,
+      qualityScoreId: qualityData?.id
     };
 
     console.log('Returning success response:', responseData);
@@ -465,30 +508,17 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
   } catch (error) {
     console.error('Processing error:', error);
     
-    // Try to update call status to indicate error
-    try {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      const { callId } = await req.json().catch(() => ({}));
-      
-      if (callId) {
-        console.log('Resetting call status due to error...');
-        await supabase
-          .from('calls')
-          .update({ 
-            status: 'uploaded', // Reset to uploaded so user can try again
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', callId);
-      }
-    } catch (updateError) {
-      console.error('Failed to update call status after error:', updateError);
+    // Try to reset call status on any failure
+    if (callId && supabase) {
+      await resetCallStatusOnFailure(supabase, callId, error.message);
     }
     
     return new Response(
       JSON.stringify({ 
         error: error.message,
         details: 'Check the function logs for more information',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        callId: callId
       }), 
       { 
         status: 500, 
