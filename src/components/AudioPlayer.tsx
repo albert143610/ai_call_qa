@@ -1,5 +1,4 @@
-
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, AlertCircle } from 'lucide-react';
@@ -11,16 +10,25 @@ interface AudioPlayerProps {
   onSeekTo?: React.MutableRefObject<((time: number) => void) | null>;
   isPlaying?: boolean;
   onPlayStateChange?: (isPlaying: boolean) => void;
+  transcription?: any;
 }
 
-export const AudioPlayer = ({ 
+export interface AudioPlayerRef {
+  seekTo: (time: number) => void;
+  play: () => Promise<void>;
+  pause: () => void;
+  getCurrentTime: () => number;
+}
+
+export const AudioPlayer = forwardRef<AudioPlayerRef, AudioPlayerProps>(({ 
   src, 
   title, 
   onTimeUpdate,
   onSeekTo,
   isPlaying: externalIsPlaying,
-  onPlayStateChange
-}: AudioPlayerProps) => {
+  onPlayStateChange,
+  transcription
+}, ref) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [internalIsPlaying, setInternalIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -33,6 +41,37 @@ export const AudioPlayer = ({
 
   // Use external playing state if provided, otherwise use internal state
   const isPlaying = externalIsPlaying !== undefined ? externalIsPlaying : internalIsPlaying;
+
+  // Expose methods to parent component
+  useImperativeHandle(ref, () => ({
+    seekTo: (time: number) => {
+      const audio = audioRef.current;
+      if (!audio || error) return;
+      
+      const seekTime = Math.max(0, Math.min(duration, time));
+      console.log('Seeking to time:', seekTime);
+      audio.currentTime = seekTime;
+      setCurrentTime(seekTime);
+      onTimeUpdate?.(seekTime);
+    },
+    play: async () => {
+      const audio = audioRef.current;
+      if (!audio || error) return;
+      
+      try {
+        await audio.play();
+      } catch (error) {
+        console.error('Error playing audio:', error);
+        setError('Failed to play audio');
+      }
+    },
+    pause: () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio.pause();
+    },
+    getCurrentTime: () => currentTime
+  }));
 
   // Handle src changes
   useEffect(() => {
@@ -376,4 +415,6 @@ export const AudioPlayer = ({
       )}
     </div>
   );
-};
+});
+
+AudioPlayer.displayName = 'AudioPlayer';

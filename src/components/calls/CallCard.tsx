@@ -1,11 +1,10 @@
-
 import React, { useState, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { FileText, ChevronDown, ChevronUp, Trash2, Play, Pause, Clock } from 'lucide-react';
-import { AudioPlayer } from '../AudioPlayer';
+import { AudioPlayer, AudioPlayerRef } from '../AudioPlayer';
 import { TranscriptionDisplay } from './TranscriptionDisplay';
 import { QualityAnalysisDisplay } from './QualityAnalysisDisplay';
 import { CallDetailsAndTags } from './CallDetailsAndTags';
@@ -50,7 +49,9 @@ const formatDuration = (seconds: number | null) => {
 export const CallCard = ({ call, onDelete }: CallCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<AudioPlayerRef>(null);
 
   const qualityScore = call.quality_scores?.[0];
   const transcription = call.transcriptions?.[0];
@@ -61,6 +62,20 @@ export const CallCard = ({ call, onDelete }: CallCardProps) => {
   const handleRetrySuccess = () => {
     // Trigger a refresh of the call data
     setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleSeekTo = (time: number) => {
+    if (audioRef.current) {
+      audioRef.current.seekTo(time);
+    }
+  };
+
+  const handleTimeUpdate = (time: number) => {
+    setCurrentTime(time);
+  };
+
+  const handlePlayStateChange = (playing: boolean) => {
+    setIsPlaying(playing);
   };
 
   return (
@@ -120,6 +135,9 @@ export const CallCard = ({ call, onDelete }: CallCardProps) => {
                     ref={audioRef}
                     src={call.file_url}
                     transcription={transcription}
+                    onTimeUpdate={handleTimeUpdate}
+                    isPlaying={isPlaying}
+                    onPlayStateChange={handlePlayStateChange}
                   />
                 </div>
               )}
@@ -128,7 +146,9 @@ export const CallCard = ({ call, onDelete }: CallCardProps) => {
               <TranscriptionDisplay
                 transcription={transcription}
                 isTranscribing={call.status === 'transcribing'}
-                callStatus={call.status || 'uploaded'}
+                currentTime={currentTime}
+                isPlaying={isPlaying}
+                onSeekTo={handleSeekTo}
               />
 
               {/* Quality Analysis */}
