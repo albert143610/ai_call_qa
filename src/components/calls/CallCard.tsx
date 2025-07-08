@@ -1,9 +1,10 @@
+
 import React, { useState, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { FileText, ChevronDown, ChevronUp, Trash2, Play, Pause, Clock } from 'lucide-react';
+import { FileText, ChevronDown, ChevronUp, Trash2, Play, Clock } from 'lucide-react';
 import { AudioPlayer, AudioPlayerRef } from '../AudioPlayer';
 import { TranscriptionDisplay } from './TranscriptionDisplay';
 import { QualityAnalysisDisplay } from './QualityAnalysisDisplay';
@@ -60,7 +61,6 @@ export const CallCard = ({ call, onDelete }: CallCardProps) => {
   const isAnalyzing = call.status === 'analyzing' || call.status === 'transcribing';
 
   const handleRetrySuccess = () => {
-    // Trigger a refresh of the call data
     setRefreshTrigger(prev => prev + 1);
   };
 
@@ -79,66 +79,76 @@ export const CallCard = ({ call, onDelete }: CallCardProps) => {
   };
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div className="space-y-2 flex-1">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              {call.title}
-            </CardTitle>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge className={getStatusColor(call.status || 'uploaded')}>
-                {call.status || 'uploaded'}
-              </Badge>
-              {call.duration_seconds && (
-                <Badge variant="outline" className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {formatDuration(call.duration_seconds)}
+    <Card className="w-full transition-shadow duration-200 hover:shadow-md">
+      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+        <CardHeader className="pb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <CardTitle className="text-lg flex items-center gap-2 mb-3">
+                <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                <span className="truncate">{call.title}</span>
+              </CardTitle>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className={getStatusColor(call.status || 'uploaded')}>
+                  {call.status || 'uploaded'}
                 </Badge>
-              )}
-              <CallMetadataBadges call={call} />
+                {call.duration_seconds && (
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {formatDuration(call.duration_seconds)}
+                  </Badge>
+                )}
+                <CallMetadataBadges call={call} />
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+            <div className="flex items-center gap-1 flex-shrink-0">
               <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  className="h-8 w-8 p-0 hover:bg-accent transition-colors"
+                  aria-label={isExpanded ? "Collapse call details" : "Expand call details"}
+                >
+                  {isExpanded ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
                 </Button>
               </CollapsibleTrigger>
-            </Collapsible>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onDelete(call.id)}
-              className="text-red-600 hover:text-red-700"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDelete(call.id)}
+                className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors"
+                aria-label="Delete call"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
-        </div>
-      </CardHeader>
+        </CardHeader>
 
-      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-        <CollapsibleContent>
+        <CollapsibleContent className="transition-all duration-200 ease-in-out">
           <CardContent className="pt-0">
             <div className="space-y-6">
               {/* Audio Player */}
               {call.file_url && (
-                <div className="space-y-2">
-                  <h4 className="font-semibold flex items-center gap-2">
+                <div className="space-y-3">
+                  <h4 className="font-semibold flex items-center gap-2 text-sm text-muted-foreground">
                     <Play className="h-4 w-4" />
                     Audio
                   </h4>
-                  <AudioPlayer
-                    ref={audioRef}
-                    src={call.file_url}
-                    transcription={transcription}
-                    onTimeUpdate={handleTimeUpdate}
-                    isPlaying={isPlaying}
-                    onPlayStateChange={handlePlayStateChange}
-                  />
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <AudioPlayer
+                      ref={audioRef}
+                      src={call.file_url}
+                      transcription={transcription}
+                      onTimeUpdate={handleTimeUpdate}
+                      isPlaying={isPlaying}
+                      onPlayStateChange={handlePlayStateChange}
+                    />
+                  </div>
                 </div>
               )}
 
