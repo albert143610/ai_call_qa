@@ -22,7 +22,7 @@ export const AnalysisErrorState = ({
         return {
           icon: <AlertTriangle className="h-4 w-4 text-red-600" />,
           title: 'Analysis Failed',
-          description: 'The call was marked as analyzed but no quality data was found. This usually means the analysis process failed to complete properly.',
+          description: 'The AI analysis could not be completed. The system will try alternative analysis methods when you retry.',
           bgColor: 'bg-red-50',
           borderColor: 'border-red-200',
           textColor: 'text-red-700',
@@ -32,7 +32,7 @@ export const AnalysisErrorState = ({
         return {
           icon: <RefreshCw className="h-4 w-4 text-yellow-600 animate-spin" />,
           title: 'Analysis Taking Longer Than Expected',
-          description: 'The quality analysis seems to be stuck. You can try restarting the analysis process.',
+          description: 'The AI analysis is taking longer than usual. This may be due to high server load or network issues.',
           bgColor: 'bg-yellow-50',
           borderColor: 'border-yellow-200',
           textColor: 'text-yellow-700',
@@ -41,8 +41,8 @@ export const AnalysisErrorState = ({
       case 'incomplete':
         return {
           icon: <FileText className="h-4 w-4 text-orange-600" />,
-          title: 'Incomplete Analysis',
-          description: 'The analysis started but didn\'t complete successfully. Some data may be missing.',
+          title: 'Partial Analysis Available',
+          description: 'Basic analysis was completed but detailed AI insights may be limited. Quality scores are still available.',
           bgColor: 'bg-orange-50',
           borderColor: 'border-orange-200',
           textColor: 'text-orange-700',
@@ -51,8 +51,8 @@ export const AnalysisErrorState = ({
       default:
         return {
           icon: <AlertTriangle className="h-4 w-4 text-gray-600" />,
-          title: 'Unknown Error',
-          description: 'An unexpected error occurred during analysis.',
+          title: 'Analysis Issue',
+          description: 'There was an issue with the analysis process. Please try again or contact support if the problem persists.',
           bgColor: 'bg-gray-50',
           borderColor: 'border-gray-200',
           textColor: 'text-gray-700',

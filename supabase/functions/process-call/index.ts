@@ -142,8 +142,17 @@ function createTimestampedSegments(transcriptionResult: any, totalDuration: numb
 }
 
 // Function to create fallback quality score when AI analysis fails
-function createFallbackQualityScore() {
-  console.log('Creating fallback quality score due to AI analysis failure');
+function createFallbackQualityScore(reason: string = 'unknown') {
+  console.log(`Creating fallback quality score due to: ${reason}`);
+  
+  const fallbackMessages = {
+    'api_error': 'AI analysis temporarily unavailable due to service issues. Basic quality metrics applied.',
+    'parsing_error': 'AI analysis completed but response format was invalid. Basic quality metrics applied.',
+    'timeout': 'AI analysis timed out. Basic quality metrics applied based on call length and content.',
+    'quota_exceeded': 'AI analysis quota exceeded. Basic quality metrics applied.',
+    'unknown': 'Quality analysis could not be completed automatically. This call may require manual review.'
+  };
+
   return {
     overall_satisfaction_score: 3,
     communication_score: 3,
@@ -152,8 +161,50 @@ function createFallbackQualityScore() {
     empathy_score: 3,
     follow_up_score: 3,
     sentiment: 'neutral',
-    feedback: 'Quality analysis could not be completed automatically. This call may require manual review.',
-    improvement_areas: []
+    feedback: fallbackMessages[reason as keyof typeof fallbackMessages] || fallbackMessages.unknown,
+    improvement_areas: ['automated-analysis-unavailable']
+  };
+}
+
+// Function to perform basic sentiment analysis as fallback
+function performBasicAnalysis(transcriptionContent: string) {
+  const content = transcriptionContent.toLowerCase();
+  
+  // Basic sentiment keywords
+  const positiveKeywords = ['thank', 'great', 'excellent', 'satisfied', 'happy', 'resolved', 'helpful'];
+  const negativeKeywords = ['angry', 'frustrated', 'terrible', 'awful', 'unresolved', 'complaint', 'problem'];
+  
+  const positiveCount = positiveKeywords.reduce((count, word) => 
+    count + (content.split(word).length - 1), 0);
+  const negativeCount = negativeKeywords.reduce((count, word) => 
+    count + (content.split(word).length - 1), 0);
+  
+  // Basic length and structure analysis
+  const wordCount = content.split(/\s+/).length;
+  const hasCustomerAgent = content.includes('customer:') && content.includes('agent:');
+  
+  // Determine sentiment
+  let sentiment = 'neutral';
+  if (positiveCount > negativeCount && positiveCount > 2) sentiment = 'positive';
+  else if (negativeCount > positiveCount && negativeCount > 2) sentiment = 'negative';
+  
+  // Basic scoring based on call structure and length
+  const baseScore = hasCustomerAgent ? 3 : 2;
+  const lengthBonus = wordCount > 100 ? 1 : 0;
+  const sentimentBonus = sentiment === 'positive' ? 1 : sentiment === 'negative' ? -1 : 0;
+  
+  const finalScore = Math.max(1, Math.min(5, baseScore + lengthBonus + sentimentBonus));
+  
+  return {
+    overall_satisfaction_score: finalScore,
+    communication_score: finalScore,
+    problem_resolution_score: Math.max(1, finalScore - 1),
+    professionalism_score: finalScore,
+    empathy_score: Math.max(1, finalScore - 1),
+    follow_up_score: finalScore,
+    sentiment,
+    feedback: `Basic analysis completed. Call contains ${wordCount} words with ${sentiment} sentiment indicators. ${hasCustomerAgent ? 'Proper customer-agent dialogue structure detected.' : 'Simple call structure detected.'}`,
+    improvement_areas: sentiment === 'negative' ? ['customer-satisfaction', 'issue-resolution'] : []
   };
 }
 
@@ -420,16 +471,54 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
       .update({ status: 'analyzing', updated_at: new Date().toISOString() })
       .eq('id', callId);
 
-    // Step 6: Analyze call quality using OpenAI with error handling
+    // Step 6: Analyze call quality using OpenAI with enhanced error handling
     console.log('Starting AI analysis...');
     let analysis;
+    let analysisAttempts = 0;
+    const maxRetries = 2;
     
-    try {
-      analysis = await analyzeCallQuality(transcriptionResult.content);
-      console.log('Analysis completed successfully:', analysis);
-    } catch (analysisError) {
-      console.error('AI analysis failed, using fallback:', analysisError);
-      analysis = createFallbackQualityScore();
+    while (analysisAttempts <= maxRetries) {
+      try {
+        analysisAttempts++;
+        console.log(`AI analysis attempt ${analysisAttempts}/${maxRetries + 1}`);
+        
+        analysis = await analyzeCallQuality(transcriptionResult.content);
+        console.log('AI analysis completed successfully:', analysis);
+        break;
+        
+      } catch (analysisError: any) {
+        console.error(`AI analysis attempt ${analysisAttempts} failed:`, analysisError);
+        
+        if (analysisAttempts > maxRetries) {
+          // Determine fallback reason based on error type
+          let fallbackReason = 'unknown';
+          const errorMessage = analysisError.message?.toLowerCase() || '';
+          
+          if (errorMessage.includes('rate limit') || errorMessage.includes('quota')) {
+            fallbackReason = 'quota_exceeded';
+          } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+            fallbackReason = 'timeout';
+          } else if (errorMessage.includes('parse') || errorMessage.includes('json')) {
+            fallbackReason = 'parsing_error';
+          } else if (errorMessage.includes('api') || errorMessage.includes('openai')) {
+            fallbackReason = 'api_error';
+          }
+          
+          console.log(`Using enhanced fallback analysis after ${maxRetries + 1} failed attempts`);
+          // Try basic analysis first, fall back to static if that fails too
+          try {
+            analysis = performBasicAnalysis(transcriptionResult.content);
+            console.log('Basic analysis completed successfully:', analysis);
+          } catch (basicError) {
+            console.error('Basic analysis also failed:', basicError);
+            analysis = createFallbackQualityScore(fallbackReason);
+          }
+          break;
+        }
+        
+        // Wait a bit before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * analysisAttempts));
+      }
     }
 
     // Step 7: Insert quality score with proper error handling

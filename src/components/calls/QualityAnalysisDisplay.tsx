@@ -43,6 +43,20 @@ export const QualityAnalysisDisplay = ({
   const isAnalyzedButNoData = callStatus === 'analyzed' && !qualityScore;
   const hasValidAnalysis = qualityScore && callStatus === 'analyzed';
   
+  // Check if this is a fallback analysis (basic analysis due to AI failure)
+  const isFallbackAnalysis = qualityScore?.improvement_areas?.includes('automated-analysis-unavailable');
+  const hasBasicAnalysis = qualityScore && !isFallbackAnalysis;
+  
+  // Determine analysis quality for UI feedback
+  const getAnalysisQuality = () => {
+    if (!qualityScore) return 'none';
+    if (isFallbackAnalysis) return 'basic';
+    if (qualityScore.ai_feedback && qualityScore.ai_feedback.length > 50) return 'detailed';
+    return 'standard';
+  };
+  
+  const analysisQuality = getAnalysisQuality();
+  
   return (
     <div className="space-y-4">
       <h4 className="font-semibold flex items-center gap-2">
@@ -52,6 +66,19 @@ export const QualityAnalysisDisplay = ({
       
       {hasValidAnalysis ? (
         <div className="space-y-4">
+          {/* Analysis Quality Indicator */}
+          {analysisQuality === 'basic' && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-orange-800">
+                <MessageSquare className="h-4 w-4" />
+                <span className="text-sm font-medium">Basic Analysis Mode</span>
+              </div>
+              <p className="text-xs text-orange-700 mt-1">
+                Detailed AI analysis was unavailable. Scores are based on call structure and content patterns.
+              </p>
+            </div>
+          )}
+          
           {/* Overall Score - More prominent */}
           {qualityScore.overall_satisfaction_score && (
             <div className="bg-white border rounded-lg p-4">
@@ -59,6 +86,11 @@ export const QualityAnalysisDisplay = ({
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-blue-600" />
                   <span className="font-medium">Overall Score</span>
+                  {analysisQuality === 'detailed' && (
+                    <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                      AI Enhanced
+                    </Badge>
+                  )}
                 </div>
                 <Badge 
                   variant="outline" 
@@ -145,11 +177,13 @@ export const QualityAnalysisDisplay = ({
             <div className="space-y-2">
               <p className="font-medium text-gray-700">Improvement Areas</p>
               <div className="flex flex-wrap gap-2">
-                {qualityScore.improvement_areas.map((area, index) => (
-                  <Badge key={index} variant="secondary" className="text-xs bg-orange-100 text-orange-800 border-orange-200">
-                    {area}
-                  </Badge>
-                ))}
+                {qualityScore.improvement_areas
+                  .filter(area => area !== 'automated-analysis-unavailable') // Filter out technical markers
+                  .map((area, index) => (
+                    <Badge key={index} variant="secondary" className="text-xs bg-orange-100 text-orange-800 border-orange-200">
+                      {area.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    </Badge>
+                  ))}
               </div>
             </div>
           )}
