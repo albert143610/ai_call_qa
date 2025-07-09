@@ -208,93 +208,216 @@ function performBasicAnalysis(transcriptionContent: string) {
   };
 }
 
-// Function to analyze call quality using OpenAI
-async function analyzeCallQuality(transcriptionContent: string): Promise<any> {
+// Function to analyze call quality using OpenAI with enhanced error handling
+async function analyzeCallQuality(transcriptionContent: string, attempt: number = 1): Promise<any> {
+  const maxAttempts = 3;
+  const retryDelay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff
+  
   try {
-    console.log('Starting AI analysis with GPT-4o-mini...');
+    console.log(`Starting AI analysis attempt ${attempt}/${maxAttempts} with GPT-4o-mini...`);
+    console.log(`Transcript length: ${transcriptionContent.length} characters`);
+    
+    // Validate input
+    if (!transcriptionContent || transcriptionContent.trim().length < 10) {
+      throw new Error('Transcript content is too short or empty');
+    }
+
+    // Truncate very long transcripts to avoid token limits
+    const maxLength = 12000; // Safe limit for GPT-4o-mini
+    const processedContent = transcriptionContent.length > maxLength 
+      ? transcriptionContent.substring(0, maxLength) + '...[truncated]'
+      : transcriptionContent;
 
     const analysisPrompt = `
-Analyze the following customer service call transcript and provide detailed scoring:
+Analyze this customer service call transcript and provide scoring (1-5 scale):
 
-1. Overall satisfaction score (1-5, where 5 is excellent)
-2. Communication score (1-5) - clarity, politeness, understanding
-3. Problem resolution score (1-5) - how well the issue was addressed
-4. Professionalism score (1-5) - courtesy, proper procedures
-5. Empathy score (1-5) - understanding customer feelings
-6. Follow-up score (1-5) - appropriate next steps or follow-up
-7. Overall sentiment (positive, negative, or neutral)
-8. Brief feedback on the agent's performance (max 200 words)
-9. List of improvement areas (if any)
+TRANSCRIPT:
+${processedContent}
 
-Transcript:
-${transcriptionContent}
-
-Please respond in JSON format with: {
-  "overall_satisfaction_score": number,
-  "communication_score": number,
-  "problem_resolution_score": number,
-  "professionalism_score": number,
-  "empathy_score": number,
-  "follow_up_score": number,
-  "sentiment": "positive|negative|neutral",
-  "feedback": "string",
+Respond with ONLY valid JSON in this exact format:
+{
+  "overall_satisfaction_score": number (1-5),
+  "communication_score": number (1-5),
+  "problem_resolution_score": number (1-5), 
+  "professionalism_score": number (1-5),
+  "empathy_score": number (1-5),
+  "follow_up_score": number (1-5),
+  "sentiment": "positive" | "negative" | "neutral",
+  "feedback": "Brief analysis (max 150 words)",
   "improvement_areas": ["area1", "area2"]
 }`;
 
+    const requestBody = {
+      model: 'gpt-4o-mini',
+      messages: [
+        { 
+          role: 'system', 
+          content: 'You are a call quality expert. Return ONLY valid JSON with the exact structure requested. No additional text.' 
+        },
+        { role: 'user', content: analysisPrompt }
+      ],
+      temperature: 0.1, // Lower temperature for more consistent JSON
+      max_tokens: 800,
+      timeout: 30000 // 30 second timeout
+    };
+
+    console.log('Sending request to OpenAI...');
+    const startTime = Date.now();
+    
     const openAIResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openAIApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are an expert call quality analyst. Respond only with valid JSON matching the requested format.' },
-          { role: 'user', content: analysisPrompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 1000,
-      }),
+      body: JSON.stringify(requestBody),
     });
+
+    const responseTime = Date.now() - startTime;
+    console.log(`OpenAI response received in ${responseTime}ms with status: ${openAIResponse.status}`);
 
     if (!openAIResponse.ok) {
       const errorText = await openAIResponse.text();
-      console.error('OpenAI API request failed:', openAIResponse.status, errorText);
-      throw new Error(`OpenAI API request failed: ${openAIResponse.status} - ${errorText}`);
+      console.error('OpenAI API error details:', {
+        status: openAIResponse.status,
+        statusText: openAIResponse.statusText,
+        body: errorText,
+        attempt: attempt
+      });
+      
+      // Check for specific error types
+      if (openAIResponse.status === 429) {
+        throw new Error('rate_limit_exceeded');
+      } else if (openAIResponse.status >= 500) {
+        throw new Error('openai_server_error');
+      } else if (openAIResponse.status === 401) {
+        throw new Error('openai_auth_error');
+      }
+      
+      throw new Error(`OpenAI API error: ${openAIResponse.status} - ${errorText}`);
     }
 
     const openAIData = await openAIResponse.json();
-    const analysisText = openAIData.choices[0].message.content;
+    console.log('OpenAI response data structure:', {
+      hasChoices: !!openAIData.choices,
+      choicesLength: openAIData.choices?.length,
+      hasMessage: !!openAIData.choices?.[0]?.message,
+      hasContent: !!openAIData.choices?.[0]?.message?.content
+    });
+
+    const analysisText = openAIData.choices?.[0]?.message?.content;
+    if (!analysisText) {
+      throw new Error('Empty response from OpenAI');
+    }
     
-    console.log('OpenAI analysis response:', analysisText);
+    console.log('Raw OpenAI analysis response:', analysisText.substring(0, 500) + '...');
+    
+    // Clean the response - remove any markdown formatting or extra text
+    let cleanedText = analysisText.trim();
+    
+    // Extract JSON if it's wrapped in markdown code blocks
+    const jsonMatch = cleanedText.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+    if (jsonMatch) {
+      cleanedText = jsonMatch[1];
+    }
+    
+    // Remove any text before the first { or after the last }
+    const startIndex = cleanedText.indexOf('{');
+    const endIndex = cleanedText.lastIndexOf('}');
+    if (startIndex !== -1 && endIndex !== -1) {
+      cleanedText = cleanedText.substring(startIndex, endIndex + 1);
+    }
+    
+    console.log('Cleaned JSON for parsing:', cleanedText.substring(0, 200) + '...');
     
     let analysis;
     try {
-      analysis = JSON.parse(analysisText);
+      analysis = JSON.parse(cleanedText);
     } catch (parseError) {
-      console.error('Failed to parse OpenAI response:', parseError);
-      throw new Error('Failed to parse AI analysis response');
+      console.error('JSON parsing failed:', {
+        error: parseError.message,
+        rawText: analysisText,
+        cleanedText: cleanedText,
+        attempt: attempt
+      });
+      
+      if (attempt < maxAttempts) {
+        console.log(`Retrying due to parse error, attempt ${attempt + 1}/${maxAttempts}`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        return analyzeCallQuality(transcriptionContent, attempt + 1);
+      }
+      
+      throw new Error(`Failed to parse AI response after ${maxAttempts} attempts`);
+    }
+
+    // Validate required fields exist
+    const requiredFields = [
+      'overall_satisfaction_score', 'communication_score', 'problem_resolution_score',
+      'professionalism_score', 'empathy_score', 'follow_up_score', 'sentiment', 'feedback'
+    ];
+    
+    const missingFields = requiredFields.filter(field => !(field in analysis));
+    if (missingFields.length > 0) {
+      console.error('Missing required fields in analysis:', missingFields);
+      
+      if (attempt < maxAttempts) {
+        console.log(`Retrying due to missing fields, attempt ${attempt + 1}/${maxAttempts}`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        return analyzeCallQuality(transcriptionContent, attempt + 1);
+      }
+      
+      throw new Error(`Analysis missing required fields: ${missingFields.join(', ')}`);
     }
 
     // Validate and sanitize analysis data
     const sanitizedAnalysis = {
-      overall_satisfaction_score: Math.max(1, Math.min(5, analysis.overall_satisfaction_score || 3)),
-      communication_score: Math.max(1, Math.min(5, analysis.communication_score || 3)),
-      problem_resolution_score: Math.max(1, Math.min(5, analysis.problem_resolution_score || 3)),
-      professionalism_score: Math.max(1, Math.min(5, analysis.professionalism_score || 3)),
-      empathy_score: Math.max(1, Math.min(5, analysis.empathy_score || 3)),
-      follow_up_score: Math.max(1, Math.min(5, analysis.follow_up_score || 3)),
+      overall_satisfaction_score: Math.max(1, Math.min(5, parseInt(analysis.overall_satisfaction_score) || 3)),
+      communication_score: Math.max(1, Math.min(5, parseInt(analysis.communication_score) || 3)),
+      problem_resolution_score: Math.max(1, Math.min(5, parseInt(analysis.problem_resolution_score) || 3)),
+      professionalism_score: Math.max(1, Math.min(5, parseInt(analysis.professionalism_score) || 3)),
+      empathy_score: Math.max(1, Math.min(5, parseInt(analysis.empathy_score) || 3)),
+      follow_up_score: Math.max(1, Math.min(5, parseInt(analysis.follow_up_score) || 3)),
       sentiment: ['positive', 'negative', 'neutral'].includes(analysis.sentiment) ? analysis.sentiment : 'neutral',
-      feedback: analysis.feedback || 'Analysis completed successfully.',
-      improvement_areas: Array.isArray(analysis.improvement_areas) ? analysis.improvement_areas : []
+      feedback: typeof analysis.feedback === 'string' && analysis.feedback.length > 0 
+        ? analysis.feedback.substring(0, 500) // Limit feedback length
+        : 'AI analysis completed successfully.',
+      improvement_areas: Array.isArray(analysis.improvement_areas) 
+        ? analysis.improvement_areas.slice(0, 10) // Limit number of areas
+        : []
     };
 
-    console.log('AI analysis completed successfully');
+    console.log('AI analysis completed successfully after', attempt, 'attempts:', {
+      scores: {
+        overall: sanitizedAnalysis.overall_satisfaction_score,
+        communication: sanitizedAnalysis.communication_score,
+        sentiment: sanitizedAnalysis.sentiment
+      },
+      feedbackLength: sanitizedAnalysis.feedback.length,
+      improvementAreas: sanitizedAnalysis.improvement_areas.length
+    });
+    
     return sanitizedAnalysis;
     
-  } catch (error) {
-    console.error('Error in AI analysis:', error);
+  } catch (error: any) {
+    console.error(`AI analysis attempt ${attempt} failed:`, {
+      error: error.message,
+      stack: error.stack,
+      transcriptLength: transcriptionContent.length
+    });
+    
+    // Retry logic for recoverable errors
+    if (attempt < maxAttempts) {
+      const retryableErrors = ['rate_limit_exceeded', 'openai_server_error', 'timeout', 'network'];
+      const isRetryable = retryableErrors.some(err => error.message.toLowerCase().includes(err.toLowerCase()));
+      
+      if (isRetryable) {
+        console.log(`Retrying AI analysis in ${retryDelay}ms, attempt ${attempt + 1}/${maxAttempts}`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        return analyzeCallQuality(transcriptionContent, attempt + 1);
+      }
+    }
+    
+    console.error(`AI analysis failed after ${attempt} attempts, using fallback`);
     throw error;
   }
 }
@@ -474,50 +597,50 @@ Agent: You're welcome! Have a great day and thank you for choosing our service.`
     // Step 6: Analyze call quality using OpenAI with enhanced error handling
     console.log('Starting AI analysis...');
     let analysis;
-    let analysisAttempts = 0;
-    const maxRetries = 2;
+    let usedFallback = false;
+    let analysisMethod = 'ai';
     
-    while (analysisAttempts <= maxRetries) {
+    try {
+      // Try AI analysis with built-in retry logic
+      analysis = await analyzeCallQuality(transcriptionResult.content);
+      console.log('AI analysis completed successfully');
+      analysisMethod = 'ai';
+    } catch (analysisError: any) {
+      console.error('AI analysis failed completely:', analysisError);
+      usedFallback = true;
+      
+      // Determine fallback reason based on error type
+      let fallbackReason = 'unknown';
+      const errorMessage = analysisError.message?.toLowerCase() || '';
+      
+      if (errorMessage.includes('rate limit') || errorMessage.includes('quota')) {
+        fallbackReason = 'quota_exceeded';
+        analysisMethod = 'fallback_quota';
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+        fallbackReason = 'timeout';
+        analysisMethod = 'fallback_timeout';
+      } else if (errorMessage.includes('parse') || errorMessage.includes('json')) {
+        fallbackReason = 'parsing_error';
+        analysisMethod = 'fallback_parse';
+      } else if (errorMessage.includes('api') || errorMessage.includes('openai')) {
+        fallbackReason = 'api_error';
+        analysisMethod = 'fallback_api';
+      } else {
+        analysisMethod = 'fallback_unknown';
+      }
+      
+      console.log(`Using enhanced fallback analysis due to: ${fallbackReason}`);
+      
+      // Try basic analysis first, fall back to static if that fails too
       try {
-        analysisAttempts++;
-        console.log(`AI analysis attempt ${analysisAttempts}/${maxRetries + 1}`);
-        
-        analysis = await analyzeCallQuality(transcriptionResult.content);
-        console.log('AI analysis completed successfully:', analysis);
-        break;
-        
-      } catch (analysisError: any) {
-        console.error(`AI analysis attempt ${analysisAttempts} failed:`, analysisError);
-        
-        if (analysisAttempts > maxRetries) {
-          // Determine fallback reason based on error type
-          let fallbackReason = 'unknown';
-          const errorMessage = analysisError.message?.toLowerCase() || '';
-          
-          if (errorMessage.includes('rate limit') || errorMessage.includes('quota')) {
-            fallbackReason = 'quota_exceeded';
-          } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
-            fallbackReason = 'timeout';
-          } else if (errorMessage.includes('parse') || errorMessage.includes('json')) {
-            fallbackReason = 'parsing_error';
-          } else if (errorMessage.includes('api') || errorMessage.includes('openai')) {
-            fallbackReason = 'api_error';
-          }
-          
-          console.log(`Using enhanced fallback analysis after ${maxRetries + 1} failed attempts`);
-          // Try basic analysis first, fall back to static if that fails too
-          try {
-            analysis = performBasicAnalysis(transcriptionResult.content);
-            console.log('Basic analysis completed successfully:', analysis);
-          } catch (basicError) {
-            console.error('Basic analysis also failed:', basicError);
-            analysis = createFallbackQualityScore(fallbackReason);
-          }
-          break;
-        }
-        
-        // Wait a bit before retrying (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, 1000 * analysisAttempts));
+        analysis = performBasicAnalysis(transcriptionResult.content);
+        console.log('Basic analysis completed successfully');
+        analysisMethod = 'basic';
+      } catch (basicError) {
+        console.error('Basic analysis also failed:', basicError);
+        analysis = createFallbackQualityScore(fallbackReason);
+        console.log('Using static fallback analysis');
+        analysisMethod = 'static';
       }
     }
 

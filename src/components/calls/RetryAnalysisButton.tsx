@@ -25,7 +25,19 @@ export const RetryAnalysisButton = ({
     try {
       console.log('Retrying analysis for call:', callId, 'Current status:', currentStatus);
       
-      // First, reset the call status to uploaded to allow retry
+      // Clean up any existing quality scores that might be preventing retry
+      console.log('Cleaning up existing analysis data...');
+      const { error: qualityDeleteError } = await supabase
+        .from('quality_scores')
+        .delete()
+        .eq('call_id', callId);
+
+      if (qualityDeleteError) {
+        console.warn('Could not clean up quality scores:', qualityDeleteError);
+        // Don't fail the retry for this, just log it
+      }
+
+      // Reset the call status to uploaded to allow retry
       console.log('Resetting call status to uploaded...');
       const { error: resetError } = await supabase
         .from('calls')
@@ -40,53 +52,80 @@ export const RetryAnalysisButton = ({
         throw new Error(`Failed to reset call status: ${resetError.message}`);
       }
 
-      // Small delay to ensure the status is updated
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Add a longer delay to ensure the status is updated and any background processes stop
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // Now trigger the analysis
+      // Now trigger the analysis with timeout
       console.log('Triggering analysis via edge function...');
-      const { data, error } = await supabase.functions.invoke('process-call', {
-        body: { callId }
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
 
-      if (error) {
-        console.error('Edge function invocation error:', error);
-        throw new Error(`Analysis failed: ${error.message}`);
-      }
+      try {
+        const { data, error } = await supabase.functions.invoke('process-call', {
+          body: { callId },
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
 
-      console.log('Analysis retry response:', data);
+        clearTimeout(timeoutId);
 
-      toast({
-        title: "Analysis Retry Started",
-        description: "The call analysis has been restarted. Please wait a moment for it to complete.",
-      });
+        if (error) {
+          console.error('Edge function invocation error:', error);
+          throw new Error(`Analysis failed: ${error.message}`);
+        }
 
-      if (onRetrySuccess) {
-        // Delay the callback to allow the UI to update
-        setTimeout(() => {
-          onRetrySuccess();
-        }, 2000);
+        console.log('Analysis retry response:', data);
+
+        toast({
+          title: "Analysis Started",
+          description: "The call analysis has been restarted successfully. Results will appear shortly.",
+        });
+
+        if (onRetrySuccess) {
+          // Delay the callback to allow the UI to update
+          setTimeout(() => {
+            onRetrySuccess();
+          }, 3000);
+        }
+      } catch (invokeError) {
+        clearTimeout(timeoutId);
+        throw invokeError;
       }
       
     } catch (error: any) {
       console.error('Retry failed:', error);
       
-      // Provide more specific error messages
+      // Provide more specific error messages based on error type
       let errorMessage = "Failed to restart analysis. Please try again later.";
+      let errorTitle = "Retry Failed";
       
-      if (error.message.includes('OpenAI')) {
-        errorMessage = "AI analysis service is temporarily unavailable. Please try again later.";
-      } else if (error.message.includes('audio')) {
-        errorMessage = "Audio file processing failed. Please check the audio file and try again.";
-      } else if (error.message.includes('network') || error.message.includes('fetch')) {
-        errorMessage = "Network error. Please check your connection and try again.";
+      if (error.message.includes('OpenAI') || error.message.includes('AI')) {
+        errorMessage = "AI analysis service is temporarily unavailable. The system will use basic analysis as a fallback.";
+        errorTitle = "AI Service Unavailable";
+      } else if (error.message.includes('audio') || error.message.includes('transcription')) {
+        errorMessage = "Audio file processing failed. Please check that the audio file is valid and try again.";
+        errorTitle = "Audio Processing Error";
+      } else if (error.message.includes('network') || error.message.includes('fetch') || error.message.includes('timeout')) {
+        errorMessage = "Network error or timeout occurred. Please check your connection and try again.";
+        errorTitle = "Connection Error";
+      } else if (error.message.includes('status')) {
+        errorMessage = "Could not update call status. Please refresh the page and try again.";
+        errorTitle = "Status Update Error";
       }
       
       toast({
-        title: "Retry Failed",
+        title: errorTitle,
         description: errorMessage,
         variant: "destructive",
       });
+
+      // Reset retry state after a delay to allow user to try again
+      setTimeout(() => {
+        if (onRetrySuccess) {
+          onRetrySuccess();
+        }
+      }, 1000);
     } finally {
       setIsRetrying(false);
     }

@@ -51,8 +51,25 @@ export const QualityAnalysisDisplay = ({
   const getAnalysisQuality = () => {
     if (!qualityScore) return 'none';
     if (isFallbackAnalysis) return 'basic';
-    if (qualityScore.ai_feedback && qualityScore.ai_feedback.length > 50) return 'detailed';
-    return 'standard';
+    
+    // Check for AI feedback quality
+    const hasMeaningfulFeedback = qualityScore.ai_feedback && 
+      qualityScore.ai_feedback.length > 50 &&
+      !qualityScore.ai_feedback.includes('Analysis completed successfully') &&
+      !qualityScore.ai_feedback.includes('Basic analysis completed');
+    
+    if (hasMeaningfulFeedback) return 'detailed';
+    
+    // Check if scores look realistic (not all the same)
+    const scores = [
+      qualityScore.communication_score,
+      qualityScore.problem_resolution_score,
+      qualityScore.professionalism_score,
+      qualityScore.empathy_score
+    ].filter(Boolean);
+    
+    const hasVariedScores = scores.length > 1 && new Set(scores).size > 1;
+    return hasVariedScores ? 'standard' : 'basic';
   };
   
   const analysisQuality = getAnalysisQuality();
@@ -74,7 +91,19 @@ export const QualityAnalysisDisplay = ({
                 <span className="text-sm font-medium">Basic Analysis Mode</span>
               </div>
               <p className="text-xs text-orange-700 mt-1">
-                Detailed AI analysis was unavailable. Scores are based on call structure and content patterns.
+                Advanced AI analysis was not available. Scores are based on call structure, length, and keyword analysis.
+              </p>
+            </div>
+          )}
+          
+          {analysisQuality === 'detailed' && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-green-800">
+                <MessageSquare className="h-4 w-4" />
+                <span className="text-sm font-medium">AI-Enhanced Analysis</span>
+              </div>
+              <p className="text-xs text-green-700 mt-1">
+                Comprehensive AI analysis with detailed feedback and insights.
               </p>
             </div>
           )}

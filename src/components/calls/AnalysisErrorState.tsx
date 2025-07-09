@@ -20,19 +20,19 @@ export const AnalysisErrorState = ({
     switch (errorType) {
       case 'failed':
         return {
-          icon: <AlertTriangle className="h-4 w-4 text-red-600" />,
-          title: 'Analysis Failed',
-          description: 'The AI analysis could not be completed. The system will try alternative analysis methods when you retry.',
-          bgColor: 'bg-red-50',
-          borderColor: 'border-red-200',
-          textColor: 'text-red-700',
-          titleColor: 'text-red-800'
+          icon: <AlertTriangle className="h-4 w-4 text-destructive" />,
+          title: 'AI Analysis Failed',
+          description: 'The AI analysis encountered an error and could not be completed. The system fell back to basic analysis where possible. Quality scores may be limited.',
+          bgColor: 'bg-destructive/5',
+          borderColor: 'border-destructive/20',
+          textColor: 'text-destructive-foreground',
+          titleColor: 'text-destructive'
         };
       case 'stuck':
         return {
           icon: <RefreshCw className="h-4 w-4 text-yellow-600 animate-spin" />,
-          title: 'Analysis Taking Longer Than Expected',
-          description: 'The AI analysis is taking longer than usual. This may be due to high server load or network issues.',
+          title: 'Analysis In Progress',
+          description: 'The AI analysis is taking longer than usual. This may be due to complex transcript content or high server load. Please wait or try refreshing.',
           bgColor: 'bg-yellow-50',
           borderColor: 'border-yellow-200',
           textColor: 'text-yellow-700',
@@ -41,8 +41,8 @@ export const AnalysisErrorState = ({
       case 'incomplete':
         return {
           icon: <FileText className="h-4 w-4 text-orange-600" />,
-          title: 'Partial Analysis Available',
-          description: 'Basic analysis was completed but detailed AI insights may be limited. Quality scores are still available.',
+          title: 'Basic Analysis Available',
+          description: 'Advanced AI analysis was not available, but basic quality metrics have been calculated based on call structure and content patterns.',
           bgColor: 'bg-orange-50',
           borderColor: 'border-orange-200',
           textColor: 'text-orange-700',
@@ -50,13 +50,13 @@ export const AnalysisErrorState = ({
         };
       default:
         return {
-          icon: <AlertTriangle className="h-4 w-4 text-gray-600" />,
+          icon: <AlertTriangle className="h-4 w-4 text-muted-foreground" />,
           title: 'Analysis Issue',
-          description: 'There was an issue with the analysis process. Please try again or contact support if the problem persists.',
-          bgColor: 'bg-gray-50',
-          borderColor: 'border-gray-200',
-          textColor: 'text-gray-700',
-          titleColor: 'text-gray-800'
+          description: 'An unexpected issue occurred during analysis. The system will attempt to provide basic quality metrics where possible.',
+          bgColor: 'bg-muted/50',
+          borderColor: 'border-muted',
+          textColor: 'text-muted-foreground',
+          titleColor: 'text-foreground'
         };
     }
   };
